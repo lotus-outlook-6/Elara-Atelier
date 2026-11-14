@@ -12,7 +12,6 @@ import {
   Clock,
   MapPin,
   MessageCircle,
-  MessageSquare,
   Phone,
   Send,
   User,
@@ -32,7 +31,6 @@ import {
   sanitizePhoneDigits,
   validateBookingForm,
   type BookingFormValues,
-  type TelegramContactMethod,
 } from '../../utils/booking';
 import AtelierDatePicker from '../reactbits/AtelierDatePicker';
 import GlideSelect, { type GlideSelectOption } from '../reactbits/GlideSelect';
@@ -163,25 +161,9 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
     setValues(prev => ({
       ...prev,
       telegramSameAsPhone: checked,
-      telegramMethod: checked ? 'username' : prev.telegramMethod,
+      telegramMethod: 'username',
       telegramValue:
         checked && prev.telegramMethod === 'phone' ? '' : prev.telegramValue,
-    }));
-    setErrors(prev => ({ ...prev, telegramValue: undefined }));
-  };
-
-  /**
-   * Toggle Telegram preference between username and phone number.
-   * Inputs: TelegramContactMethod ('username' | 'phone').
-   */
-  const handleTelegramMethodChange = (method: TelegramContactMethod) => {
-    setValues(prev => ({
-      ...prev,
-      telegramMethod: method,
-      telegramValue:
-        method === 'phone' && prev.phoneNumber
-          ? `${prev.phoneCountryCode}${prev.phoneNumber}`
-          : '',
     }));
     setErrors(prev => ({ ...prev, telegramValue: undefined }));
   };
@@ -636,94 +618,34 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
                         ) : null}
                       </div>
 
-                      {/* Telegram Bot Contact Preference */}
-                      <div className="rounded-xl border border-[#E2D9CE] bg-[#FAF7F2] p-4">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <span className="inline-flex items-center gap-1.5 text-xs font-semibold tracking-[0.14em] text-[#1F1B18] uppercase">
-                            <MessageSquare className="h-3.5 w-3.5 text-[#B68D5E]" />
-                            Telegram Info Delivery
-                          </span>
-
-                          {values.telegramSameAsPhone ? (
-                            <span className="rounded-md border border-[#E2D9CE] bg-[#EFE9E0] px-2.5 py-1 text-[10px] font-semibold tracking-[0.1em] text-[#6E655F] uppercase">
-                              Using Phone · Username Optional
-                            </span>
-                          ) : (
-                            <div
-                              role="group"
-                              aria-label="Telegram contact method"
-                              className="flex rounded-lg border border-[#E2D9CE] bg-[#EFE9E0] p-0.5"
-                            >
-                              <button
-                                type="button"
-                                onClick={() => handleTelegramMethodChange('username')}
-                                className={`cursor-pointer rounded-md px-3 py-1 text-[11px] font-semibold tracking-[0.1em] uppercase transition-colors ${
-                                  values.telegramMethod === 'username'
-                                    ? 'bg-[#1F1B18] text-[#FAF7F2]'
-                                    : 'text-[#6E655F] hover:text-[#1F1B18]'
-                                }`}
-                              >
-                                Telegram Username
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleTelegramMethodChange('phone')}
-                                className={`cursor-pointer rounded-md px-3 py-1 text-[11px] font-semibold tracking-[0.1em] uppercase transition-colors ${
-                                  values.telegramMethod === 'phone'
-                                    ? 'bg-[#1F1B18] text-[#FAF7F2]'
-                                    : 'text-[#6E655F] hover:text-[#1F1B18]'
-                                }`}
-                              >
-                                Telegram Phone
-                              </button>
-                            </div>
-                          )}
-                        </div>
-
-                        <div className="mt-3">
-                          <input
-                            id="booking-telegram"
-                            aria-label={
-                              values.telegramSameAsPhone
-                                ? 'Telegram Username (Optional)'
-                                : values.telegramMethod === 'username'
-                                  ? 'Telegram Username'
-                                  : 'Telegram Phone Number'
-                            }
-                            type={
-                              !values.telegramSameAsPhone && values.telegramMethod === 'phone'
-                                ? 'tel'
-                                : 'text'
-                            }
-                            value={values.telegramValue}
-                            onChange={e => updateField('telegramValue', e.target.value)}
-                            placeholder={
-                              values.telegramSameAsPhone
-                                ? '@camille_laurent (optional)'
-                                : values.telegramMethod === 'username'
-                                  ? '@camille_laurent'
-                                  : `${values.phoneCountryCode}3105550148`
-                            }
-                            aria-invalid={Boolean(errors.telegramValue)}
-                            className="h-11 w-full rounded-[10px] border border-[#E2D9CE] bg-[#EFE9E0]/45 px-3.5 text-sm text-[#1F1B18] placeholder-[#6E655F]/60 outline-none transition-colors focus:border-[#B68D5E]"
-                          />
-                          {errors.telegramValue ? (
-                            <p className="mt-1.5 text-xs text-[#9E3B33]" role="alert">
-                              {errors.telegramValue}
-                            </p>
-                          ) : values.telegramSameAsPhone ? (
-                            <p className="mt-1.5 text-[11px] text-[#6E655F]">
-                              Using your phone number ({values.phoneCountryCode}{' '}
-                              {values.phoneNumber || 'entered above'}) for @{telegramStatus.botUsername}.
-                              Adding a Telegram @username is optional.
-                            </p>
-                          ) : (
-                            <p className="mt-1.5 text-[11px] text-[#6E655F]">
-                              Choose whether our @{telegramStatus.botUsername} concierge reaches you
-                              via Telegram @username or phone number.
-                            </p>
-                          )}
-                        </div>
+                      {/* Telegram Username (Inline, No Separate Card or Toggle Options) */}
+                      <div>
+                        <label
+                          htmlFor="booking-telegram"
+                          className="mb-1.5 block text-xs font-semibold tracking-[0.14em] text-[#1F1B18] uppercase"
+                        >
+                          {values.telegramSameAsPhone
+                            ? 'Telegram Username (Optional)'
+                            : 'Telegram Username'}
+                        </label>
+                        <input
+                          id="booking-telegram"
+                          type="text"
+                          value={values.telegramValue}
+                          onChange={e => updateField('telegramValue', e.target.value)}
+                          placeholder={
+                            values.telegramSameAsPhone
+                              ? '@camille_laurent (optional)'
+                              : '@camille_laurent'
+                          }
+                          aria-invalid={Boolean(errors.telegramValue)}
+                          className="h-11 w-full rounded-[10px] border border-[#E2D9CE] bg-[#FAF7F2] px-3.5 text-sm text-[#1F1B18] placeholder-[#6E655F]/60 outline-none transition-colors focus:border-[#B68D5E]"
+                        />
+                        {errors.telegramValue ? (
+                          <p className="mt-1.5 text-xs text-[#9E3B33]" role="alert">
+                            {errors.telegramValue}
+                          </p>
+                        ) : null}
                       </div>
 
                       {/* Treatment & Preferred Date/Time */}

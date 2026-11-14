@@ -543,69 +543,29 @@ export const ProfileSection: React.FC<ProfileSectionProps> = ({
                   </div>
 
                   <div>
-                    <div className="mb-1.5 flex items-center justify-between gap-2">
-                      <span className="text-[11px] font-semibold tracking-[0.12em] text-[#1F1B18] uppercase">
-                        {profileForm.telegramSameAsPhone
-                          ? 'Telegram Username (Optional)'
-                          : 'Telegram Contact'}
-                      </span>
-                      {profileForm.telegramSameAsPhone ? (
-                        <span className="text-[10px] font-semibold tracking-[0.1em] text-[#4B6B50] uppercase">
-                          Using Phone · Username Optional
-                        </span>
-                      ) : (
-                        <div className="flex rounded-md border border-[#E2D9CE] bg-[#FAF7F2] p-0.5">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setProfileForm(prev => ({
-                                ...prev,
-                                telegramMethod: 'username',
-                                telegramValue: '',
-                              }))
-                            }
-                            className={`cursor-pointer rounded px-2 py-0.5 text-[10px] font-semibold uppercase ${
-                              profileForm.telegramMethod === 'username'
-                                ? 'bg-[#1F1B18] text-[#FAF7F2]'
-                                : 'text-[#6E655F]'
-                            }`}
-                          >
-                            Username
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setProfileForm(prev => ({
-                                ...prev,
-                                telegramMethod: 'phone',
-                                telegramValue: prev.phoneNumber
-                                  ? `${prev.phoneCountryCode}${prev.phoneNumber}`
-                                  : '',
-                              }))
-                            }
-                            className={`cursor-pointer rounded px-2 py-0.5 text-[10px] font-semibold uppercase ${
-                              profileForm.telegramMethod === 'phone'
-                                ? 'bg-[#1F1B18] text-[#FAF7F2]'
-                                : 'text-[#6E655F]'
-                            }`}
-                          >
-                            Phone
-                          </button>
-                        </div>
-                      )}
-                    </div>
+                    <label
+                      htmlFor="prof-telegram"
+                      className="mb-1 block text-[11px] font-semibold tracking-[0.12em] text-[#1F1B18] uppercase"
+                    >
+                      {profileForm.telegramSameAsPhone
+                        ? 'Telegram Username (Optional)'
+                        : 'Telegram Username'}
+                    </label>
                     <input
+                      id="prof-telegram"
                       type="text"
                       value={profileForm.telegramValue}
                       onChange={e =>
-                        setProfileForm(prev => ({ ...prev, telegramValue: e.target.value }))
+                        setProfileForm(prev => ({
+                          ...prev,
+                          telegramMethod: 'username',
+                          telegramValue: e.target.value,
+                        }))
                       }
                       placeholder={
                         profileForm.telegramSameAsPhone
                           ? '@camille_laurent (optional)'
-                          : profileForm.telegramMethod === 'username'
-                            ? '@camille_laurent'
-                            : '+13105550148'
+                          : '@camille_laurent'
                       }
                       className="h-10 w-full rounded-lg border border-[#E2D9CE] bg-[#FAF7F2] px-3 text-sm text-[#1F1B18]"
                     />
@@ -1123,56 +1083,29 @@ export const ProfileSection: React.FC<ProfileSectionProps> = ({
                               </div>
 
                               <div>
-                                <div className="mb-1 flex items-center justify-between gap-2">
-                                  <span className="text-[11px] font-semibold text-[#6E655F] uppercase">
-                                    {bookingEditDraft.telegramSameAsPhone
-                                      ? 'Telegram Username (Optional)'
-                                      : 'Telegram'}
-                                  </span>
-                                  {bookingEditDraft.telegramSameAsPhone ? (
-                                    <span className="text-[10px] font-semibold tracking-[0.08em] text-[#4B6B50] uppercase">
-                                      Using Phone
-                                    </span>
-                                  ) : (
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        setBookingEditDraft(prev => ({
-                                          ...prev,
-                                          telegramMethod:
-                                            prev.telegramMethod === 'username'
-                                              ? 'phone'
-                                              : 'username',
-                                          telegramValue:
-                                            prev.telegramMethod === 'username'
-                                              ? `${prev.phoneCountryCode}${prev.phoneNumber}`
-                                              : '',
-                                        }))
-                                      }
-                                      className="cursor-pointer text-[10px] font-semibold text-[#B68D5E] uppercase underline"
-                                    >
-                                      Switch to{' '}
-                                      {bookingEditDraft.telegramMethod === 'username'
-                                        ? 'Phone'
-                                        : 'Username'}
-                                    </button>
-                                  )}
-                                </div>
+                                <label
+                                  htmlFor={`edit-telegram-${booking.id}`}
+                                  className="mb-1 block text-[11px] font-semibold text-[#6E655F] uppercase"
+                                >
+                                  {bookingEditDraft.telegramSameAsPhone
+                                    ? 'Telegram Username (Optional)'
+                                    : 'Telegram Username'}
+                                </label>
                                 <input
+                                  id={`edit-telegram-${booking.id}`}
                                   type="text"
                                   value={bookingEditDraft.telegramValue}
                                   onChange={e =>
                                     setBookingEditDraft(prev => ({
                                       ...prev,
+                                      telegramMethod: 'username',
                                       telegramValue: e.target.value,
                                     }))
                                   }
                                   placeholder={
                                     bookingEditDraft.telegramSameAsPhone
                                       ? '@username (optional)'
-                                      : bookingEditDraft.telegramMethod === 'username'
-                                        ? '@username'
-                                        : '+13105550148'
+                                      : '@username'
                                   }
                                   className="h-11 w-full rounded-lg border border-[#E2D9CE] bg-[#FAF7F2] px-3 text-sm text-[#1F1B18]"
                                 />

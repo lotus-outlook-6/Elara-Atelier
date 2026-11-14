@@ -12,7 +12,6 @@ import {
   Clock,
   Lock,
   Mail,
-  MessageSquare,
   Phone,
   ShieldCheck,
   User,
@@ -28,7 +27,6 @@ import {
   sanitizePhoneDigits,
   validateAccountForm,
   type AccountFormValues,
-  type TelegramContactMethod,
 } from '../../utils/booking';
 import AtelierDatePicker from '../reactbits/AtelierDatePicker';
 import FadeContent from '../reactbits/FadeContent';
@@ -225,25 +223,9 @@ export const AuthSection: React.FC<AuthSectionProps> = ({
     setRegisterValues(prev => ({
       ...prev,
       telegramSameAsPhone: checked,
-      telegramMethod: checked ? 'username' : prev.telegramMethod,
+      telegramMethod: 'username',
       telegramValue:
         checked && prev.telegramMethod === 'phone' ? '' : prev.telegramValue,
-    }));
-    setErrors(prev => ({ ...prev, telegramValue: undefined }));
-  };
-
-  /**
-   * Switch Telegram identifier mode cleanly between @username and phone number.
-   * Inputs: TelegramContactMethod ('username' | 'phone').
-   */
-  const switchTelegramMethod = (method: TelegramContactMethod) => {
-    setRegisterValues(prev => ({
-      ...prev,
-      telegramMethod: method,
-      telegramValue:
-        method === 'phone' && prev.phoneNumber
-          ? `${prev.phoneCountryCode}${prev.phoneNumber}`
-          : '',
     }));
     setErrors(prev => ({ ...prev, telegramValue: undefined }));
   };
@@ -699,78 +681,31 @@ export const AuthSection: React.FC<AuthSectionProps> = ({
                             ) : null}
                           </div>
 
-                          {/* Telegram Contact Preference */}
-                          <div className="rounded-xl border border-[#E2D9CE] bg-[#FAF7F2] p-4">
-                            <div className="flex flex-wrap items-center justify-between gap-2">
-                              <span className="inline-flex items-center gap-1.5 text-xs font-semibold tracking-[0.12em] text-[#1F1B18] uppercase">
-                                <MessageSquare className="h-3.5 w-3.5 text-[#B68D5E]" />
-                                Telegram Bot Updates
-                              </span>
-
-                              {registerValues.telegramSameAsPhone ? (
-                                <span className="rounded-md border border-[#E2D9CE] bg-[#EFE9E0] px-2.5 py-1 text-[10px] font-semibold tracking-[0.1em] text-[#6E655F] uppercase">
-                                  Using Phone · Username Optional
-                                </span>
-                              ) : (
-                                <div className="flex rounded-lg border border-[#E2D9CE] bg-[#EFE9E0] p-0.5">
-                                  <button
-                                    type="button"
-                                    onClick={() => switchTelegramMethod('username')}
-                                    className={`cursor-pointer rounded-md px-2.5 py-1 text-[11px] font-semibold tracking-wider uppercase transition-colors ${
-                                      registerValues.telegramMethod === 'username'
-                                        ? 'bg-[#1F1B18] text-[#FAF7F2]'
-                                        : 'text-[#6E655F] hover:text-[#1F1B18]'
-                                    }`}
-                                  >
-                                    Username
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => switchTelegramMethod('phone')}
-                                    className={`cursor-pointer rounded-md px-2.5 py-1 text-[11px] font-semibold tracking-wider uppercase transition-colors ${
-                                      registerValues.telegramMethod === 'phone'
-                                        ? 'bg-[#1F1B18] text-[#FAF7F2]'
-                                        : 'text-[#6E655F] hover:text-[#1F1B18]'
-                                    }`}
-                                  >
-                                    Phone
-                                  </button>
-                                </div>
-                              )}
-                            </div>
-
+                          {/* Telegram Username (Inline, No Separate Card or Toggle Options) */}
+                          <div>
+                            <label
+                              htmlFor="reg-telegram"
+                              className="mb-1.5 block text-xs font-semibold tracking-[0.12em] text-[#1F1B18] uppercase"
+                            >
+                              {registerValues.telegramSameAsPhone
+                                ? 'Telegram Username (Optional)'
+                                : 'Telegram Username'}
+                            </label>
                             <input
-                              aria-label={
-                                registerValues.telegramSameAsPhone
-                                  ? 'Telegram username (optional)'
-                                  : 'Telegram username or phone number'
-                              }
-                              type={
-                                !registerValues.telegramSameAsPhone &&
-                                registerValues.telegramMethod === 'phone'
-                                  ? 'tel'
-                                  : 'text'
-                              }
+                              id="reg-telegram"
+                              type="text"
                               value={registerValues.telegramValue}
                               onChange={e => updateRegField('telegramValue', e.target.value)}
                               placeholder={
                                 registerValues.telegramSameAsPhone
                                   ? '@camille_laurent (optional)'
-                                  : registerValues.telegramMethod === 'username'
-                                    ? '@camille_laurent'
-                                    : `${registerValues.phoneCountryCode}3105550148`
+                                  : '@camille_laurent'
                               }
-                              className="mt-2.5 h-10.5 w-full rounded-[9px] border border-[#E2D9CE] bg-[#EFE9E0]/50 px-3 text-sm text-[#1F1B18] outline-none transition-colors focus:border-[#B68D5E]"
+                              className="h-11 w-full rounded-[10px] border border-[#E2D9CE] bg-[#FAF7F2] px-3.5 text-sm text-[#1F1B18] outline-none transition-colors focus:border-[#B68D5E]"
                             />
                             {errors.telegramValue ? (
                               <p className="mt-1.5 text-xs text-[#9E3B33]" role="alert">
                                 {errors.telegramValue}
-                              </p>
-                            ) : registerValues.telegramSameAsPhone ? (
-                              <p className="mt-1.5 text-[11px] text-[#6E655F]">
-                                Your phone number ({registerValues.phoneCountryCode}{' '}
-                                {registerValues.phoneNumber || 'entered above'}) will be used for
-                                Telegram bot notifications. Adding a username is optional.
                               </p>
                             ) : null}
                           </div>

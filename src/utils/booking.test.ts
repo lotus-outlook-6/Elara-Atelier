@@ -273,6 +273,9 @@ test('smileRetouch targets only tooth pixels and leaves skin and pink gums untou
   const toothWeight = computeToothMaskWeight(218, 206, 182, 0.5, 0.48);
   assert.ok(toothWeight > 0.8);
 
+  const lowerToothWeight = computeToothMaskWeight(200, 186, 162, 0.5, 0.61);
+  assert.ok(lowerToothWeight > 0.5);
+
   const gumWeight = computeToothMaskWeight(192, 118, 122, 0.5, 0.39);
   assert.equal(gumWeight, 0);
 

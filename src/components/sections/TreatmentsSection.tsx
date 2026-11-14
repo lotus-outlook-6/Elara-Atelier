@@ -39,13 +39,11 @@ export const TreatmentsSection: React.FC<TreatmentsSectionProps> = ({
   );
 
   /**
-   * Handle selecting a treatment card and scrolling smoothly to the booking section.
+   * Handle selecting a treatment card without jumping away from the treatments view.
    * Inputs: TreatmentItem object.
    */
   const handleSelect = (treatment: TreatmentItem) => {
     onSelectTreatment(treatment.id);
-    const bookingEl = document.getElementById('booking');
-    bookingEl?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
   const bentoItems: MagicBentoItem[] = useMemo(
@@ -100,12 +98,6 @@ export const TreatmentsSection: React.FC<TreatmentsSectionProps> = ({
                         <span className="text-[11px] font-semibold tracking-[0.18em] text-[#B68D5E] uppercase">
                           In-Clinic Service · {treatment.duration}
                         </span>
-                        {isSelected ? (
-                          <span className="inline-flex items-center gap-1 rounded-md bg-[#1F1B18] px-2 py-0.5 text-[10px] font-semibold tracking-[0.12em] text-[#FAF7F2] uppercase">
-                            <Check className="h-3 w-3 text-[#B68D5E]" aria-hidden="true" />
-                            Active
-                          </span>
-                        ) : null}
                       </div>
 
                       <h3 className="mt-2 font-serif text-xl leading-snug font-semibold text-[#1F1B18] sm:text-2xl">
@@ -156,12 +148,6 @@ export const TreatmentsSection: React.FC<TreatmentsSectionProps> = ({
                       <span className="text-[11px] font-semibold tracking-[0.14em] text-[#B68D5E] uppercase">
                         {treatment.duration}
                       </span>
-                      {isSelected ? (
-                        <span className="inline-flex items-center gap-1 rounded-md bg-[#1F1B18] px-2 py-0.5 text-[10px] font-semibold tracking-[0.12em] text-[#FAF7F2] uppercase">
-                          <Check className="h-3 w-3 text-[#B68D5E]" aria-hidden="true" />
-                          Active
-                        </span>
-                      ) : null}
                     </div>
 
                     <h3 className="mt-1.5 font-serif text-xl leading-snug font-semibold text-[#1F1B18]">

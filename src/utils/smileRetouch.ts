@@ -1,8 +1,8 @@
 /**
  * Pure pixel-level tooth-mask and enamel shade retouching utilities.
  * Keeps facial skin, lips, and pink gums 100% identical across Before and After,
- * applies uniform realistic everyday yellowing only to teeth on Before, and cleanly scales
- * from stain removal (Day 1) to luminous porcelain white (Day 14) on After.
+ * applies subtle natural everyday yellowing only to teeth on Before, and cleanly scales
+ * from stain removal (Day 1) to luminous porcelain white (Day 14) across upper & lower teeth.
  */
 
 /**
@@ -17,7 +17,7 @@ export function smoothstep(edge0: number, edge1: number, x: number): number {
 }
 
 /**
- * Compute a soft [0, 1] mask weight indicating whether a pixel belongs to teeth
+ * Compute a soft [0, 1] mask weight indicating whether a pixel belongs to upper or lower teeth
  * inside the centered smile arch, excluding facial skin, lips, pink gums, and dark shadows.
  * Inputs: r, g, b (0-255), normX and normY normalized image coordinates (0-1).
  * Output: tooth mask weight in [0, 1].
@@ -29,26 +29,26 @@ export function computeToothMaskWeight(
   normX: number,
   normY: number
 ): number {
-  const dx = (normX - 0.5) / 0.33;
-  const dy = (normY - 0.485) / 0.155;
+  const dx = (normX - 0.5) / 0.34;
+  const dy = (normY - 0.5) / 0.195;
   const distSq = dx * dx + dy * dy;
   if (distSq >= 1) return 0;
 
-  const spatial = smoothstep(1, 0.72, distSq);
+  const spatial = smoothstep(1, 0.85, distSq);
   const lum = 0.299 * r + 0.587 * g + 0.114 * b;
-  const lumWeight = smoothstep(92, 142, lum);
-  const blueWeight = smoothstep(70, 114, b);
+  const lumWeight = smoothstep(68, 112, lum);
+  const blueWeight = smoothstep(50, 88, b);
 
   const rgDiff = r - g;
   const redRatio = rgDiff / Math.max(r, 1);
-  const nonRedWeight = smoothstep(0.285, 0.195, redRatio);
-  const tissueExclusion = smoothstep(52, 34, rgDiff);
+  const nonRedWeight = smoothstep(0.27, 0.185, redRatio);
+  const tissueExclusion = smoothstep(48, 32, rgDiff);
 
   return spatial * lumWeight * blueWeight * nonRedWeight * tissueExclusion;
 }
 
 /**
- * Apply natural everyday yellowing & dulling solely to masked tooth pixels for the Before state.
+ * Apply subtle, realistic everyday yellowing solely to masked tooth pixels for the Before state.
  * Inputs: r, g, b (0-255), toothWeight in [0, 1].
  * Output: [r, g, b] integer tuple (0-255).
  */
@@ -60,9 +60,9 @@ export function applyBeforeToothStain(
 ): [number, number, number] {
   if (toothWeight <= 0.001) return [r, g, b];
 
-  const stainedR = r * 0.95;
-  const stainedG = g * 0.9;
-  const stainedB = b * 0.73;
+  const stainedR = r * 0.985;
+  const stainedG = g * 0.955;
+  const stainedB = b * 0.855;
 
   const outR = Math.round(Math.max(0, Math.min(255, r + (stainedR - r) * toothWeight)));
   const outG = Math.round(Math.max(0, Math.min(255, g + (stainedG - g) * toothWeight)));
