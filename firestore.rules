@@ -1,0 +1,234 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidName(name) {
+      return name is string
+        && name.size() >= 2
+        && name.size() <= 80
+        && name.matches('^[A-Za-zÀ-ÖØ-öø-ÿ .\'-]+$');
+    }
+
+    function isValidCountryCode(code) {
+      return code is string && code.size() >= 2 && code.size() <= 6 && code.matches('^\\+[0-9]{1,4}$');
+    }
+
+    function isValidPhone(phone) {
+      return phone is string && phone.size() >= 6 && phone.size() <= 15 && phone.matches('^[0-9]{6,15}$');
+    }
+
+    function isValidDob(dob) {
+      return dob is string
+        && dob.size() == 10
+        && dob.matches('^(19[0-9]{2}|20[0-9]{2})-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$');
+    }
+
+    function isValidTelegram(method, value) {
+      return method is string
+        && (method == 'username' || method == 'phone')
+        && value is string
+        && value.size() >= 6
+        && value.size() <= 40
+        && (
+          (method == 'username' && value.matches('^@[a-zA-Z0-9_]{5,32}$')) ||
+          (method == 'phone' && value.matches('^\\+[0-9]{7,19}$'))
+        );
+    }
+
+    function isValidUserProfile(data) {
+      return data.keys().hasAll([
+          'uid',
+          'fullName',
+          'email',
+          'phoneCountryCode',
+          'phoneNumber',
+          'dob',
+          'telegramMethod',
+          'telegramValue',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'uid',
+          'fullName',
+          'email',
+          'phoneCountryCode',
+          'phoneNumber',
+          'dob',
+          'telegramMethod',
+          'telegramValue',
+          'telegramChatId',
+          'createdAt',
+          'updatedAt'
+        ])
+        && isValidId(data.uid)
+        && data.uid == request.auth.uid
+        && isValidName(data.fullName)
+        && data.email is string && data.email.size() >= 5 && data.email.size() <= 160
+        && isValidCountryCode(data.phoneCountryCode)
+        && isValidPhone(data.phoneNumber)
+        && isValidDob(data.dob)
+        && isValidTelegram(data.telegramMethod, data.telegramValue)
+        && (!('telegramChatId' in data) || (data.telegramChatId is string && data.telegramChatId.size() <= 64))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidBooking(data) {
+      return data.keys().hasAll([
+          'id',
+          'userId',
+          'fullName',
+          'phoneCountryCode',
+          'phoneNumber',
+          'dob',
+          'treatmentId',
+          'treatmentName',
+          'preferredDateTime',
+          'telegramMethod',
+          'telegramValue',
+          'telegramNotifyStatus',
+          'status',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id',
+          'userId',
+          'fullName',
+          'phoneCountryCode',
+          'phoneNumber',
+          'dob',
+          'treatmentId',
+          'treatmentName',
+          'preferredDateTime',
+          'telegramMethod',
+          'telegramValue',
+          'telegramNotifyStatus',
+          'status',
+          'createdAt',
+          'updatedAt'
+        ])
+        && isValidId(data.id)
+        && isValidId(data.userId)
+        && data.userId == request.auth.uid
+        && isValidName(data.fullName)
+        && isValidCountryCode(data.phoneCountryCode)
+        && isValidPhone(data.phoneNumber)
+        && isValidDob(data.dob)
+        && data.treatmentId is string && data.treatmentId.size() >= 2 && data.treatmentId.size() <= 64
+        && data.treatmentName is string && data.treatmentName.size() >= 2 && data.treatmentName.size() <= 120
+        && data.preferredDateTime is string && data.preferredDateTime.size() >= 10 && data.preferredDateTime.size() <= 32
+        && isValidTelegram(data.telegramMethod, data.telegramValue)
+        && data.telegramNotifyStatus in ['pending_bot_start', 'queued', 'sent', 'deep_link_ready']
+        && data.status in ['requested', 'confirmed', 'cancelled']
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // Owner-isolated patient PII profiles
+    match /users/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
+      allow list: if false;
+      allow create: if isSignedIn()
+        && isValidId(userId)
+        && request.auth.uid == userId
+        && isValidUserProfile(incoming())
+        && incoming().uid == userId
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isSignedIn()
+        && isValidId(userId)
+        && request.auth.uid == userId
+        && isValidUserProfile(incoming())
+        && incoming().uid == existing().uid
+        && incoming().email == existing().email
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'fullName',
+          'phoneCountryCode',
+          'phoneNumber',
+          'dob',
+          'telegramMethod',
+          'telegramValue',
+          'telegramChatId',
+          'updatedAt'
+        ]);
+      allow delete: if false;
+    }
+
+    // Owner-isolated bookings with strict 4-hour post-creation edit/cancellation window
+    match /bookings/{bookingId} {
+      allow get: if isSignedIn() && isValidId(bookingId) && existing().userId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn()
+        && isValidId(bookingId)
+        && isValidBooking(incoming())
+        && incoming().id == bookingId
+        && incoming().userId == request.auth.uid
+        && incoming().status == 'requested'
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isSignedIn()
+        && isValidId(bookingId)
+        && isValidBooking(incoming())
+        && existing().userId == request.auth.uid
+        && existing().status != 'cancelled'
+        && request.time <= existing().createdAt + duration.value(4, 'h')
+        && incoming().id == existing().id
+        && incoming().userId == existing().userId
+        && incoming().fullName == existing().fullName
+        && incoming().dob == existing().dob
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          // Action: Edit appointment details within 4-hour window
+          (
+            incoming().status == existing().status
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'treatmentId',
+              'treatmentName',
+              'preferredDateTime',
+              'phoneCountryCode',
+              'phoneNumber',
+              'telegramMethod',
+              'telegramValue',
+              'telegramNotifyStatus',
+              'updatedAt'
+            ])
+          )
+          ||
+          // Action: Cancel appointment within 4-hour window (terminal state)
+          (
+            incoming().status == 'cancelled'
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'status',
+              'updatedAt'
+            ])
+          )
+        );
+      allow delete: if false;
+    }
+  }
+}

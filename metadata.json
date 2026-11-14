@@ -1,0 +1,6 @@
+{
+  "name": "Elara Atelier — Aesthetic & Dental Studio",
+  "description": "Warm minimalist luxury aesthetic medicine, cosmetic dentistry, and skin longevity clinic.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

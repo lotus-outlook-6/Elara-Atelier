@@ -1,0 +1,218 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Private patient profile containing verified identity, country-coded phone, adult DOB, and Telegram concierge preferences.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Firebase Auth UID matching the document ID."
+        },
+        "fullName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 80,
+          "pattern": "^[A-Za-zÀ-ÖØ-öø-ÿ .'-]+$",
+          "description": "Patient full name without numeric characters."
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "minLength": 5,
+          "maxLength": 160,
+          "description": "Patient email address."
+        },
+        "phoneCountryCode": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 6,
+          "pattern": "^\\+[0-9]{1,4}$",
+          "description": "International dialing prefix such as +1 or +44."
+        },
+        "phoneNumber": {
+          "type": "string",
+          "minLength": 6,
+          "maxLength": 15,
+          "pattern": "^[0-9]{6,15}$",
+          "description": "National phone digits without formatting characters."
+        },
+        "dob": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 10,
+          "pattern": "^(19[0-9]{2}|20[0-9]{2})-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$",
+          "description": "ISO date of birth (YYYY-MM-DD), validated as 18+ years old."
+        },
+        "telegramMethod": {
+          "type": "string",
+          "enum": ["username", "phone"],
+          "description": "Preferred Telegram identifier type."
+        },
+        "telegramValue": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 40,
+          "description": "Telegram @username or E.164 phone number."
+        },
+        "telegramChatId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "Optional verified Telegram chat ID from bot /start handshake."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server-authoritative creation timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server-authoritative last update timestamp."
+        }
+      },
+      "required": [
+        "uid",
+        "fullName",
+        "email",
+        "phoneCountryCode",
+        "phoneNumber",
+        "dob",
+        "telegramMethod",
+        "telegramValue",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Booking": {
+      "title": "Booking",
+      "description": "Private consultation booking record owned by an authenticated patient, editable for 4 hours after creation.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Booking document ID."
+        },
+        "userId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Owner Firebase Auth UID."
+        },
+        "fullName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 80,
+          "pattern": "^[A-Za-zÀ-ÖØ-öø-ÿ .'-]+$",
+          "description": "Patient full name without numbers."
+        },
+        "phoneCountryCode": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 6,
+          "pattern": "^\\+[0-9]{1,4}$",
+          "description": "Country calling code."
+        },
+        "phoneNumber": {
+          "type": "string",
+          "minLength": 6,
+          "maxLength": 15,
+          "pattern": "^[0-9]{6,15}$",
+          "description": "National phone number digits."
+        },
+        "dob": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 10,
+          "pattern": "^(19[0-9]{2}|20[0-9]{2})-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$",
+          "description": "Patient date of birth (YYYY-MM-DD), 18+ verified."
+        },
+        "treatmentId": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Selected treatment identifier."
+        },
+        "treatmentName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 120,
+          "description": "Human-readable treatment title."
+        },
+        "preferredDateTime": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 32,
+          "description": "Requested studio visit ISO local date-time string."
+        },
+        "telegramMethod": {
+          "type": "string",
+          "enum": ["username", "phone"],
+          "description": "Preferred Telegram contact method."
+        },
+        "telegramValue": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 40,
+          "description": "Telegram @username or phone number with country code."
+        },
+        "telegramNotifyStatus": {
+          "type": "string",
+          "enum": ["pending_bot_start", "queued", "sent", "deep_link_ready"],
+          "description": "Delivery state for Telegram Bot concierge notification."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["requested", "confirmed", "cancelled"],
+          "description": "Booking lifecycle status."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Immutable server creation timestamp used to enforce the 4-hour edit window."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server-authoritative last update timestamp."
+        }
+      },
+      "required": [
+        "id",
+        "userId",
+        "fullName",
+        "phoneCountryCode",
+        "phoneNumber",
+        "dob",
+        "treatmentId",
+        "treatmentName",
+        "preferredDateTime",
+        "telegramMethod",
+        "telegramValue",
+        "telegramNotifyStatus",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Owner-isolated patient profile documents containing PII and Telegram concierge settings."
+    },
+    "/bookings/{bookingId}": {
+      "schema": { "$ref": "#/entities/Booking" },
+      "description": "Consultation booking records belonging to authenticated patients, editable for 4 hours after creation."
+    }
+  }
+}

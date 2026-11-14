@@ -1,0 +1,1214 @@
+/**
+ * Patient Profile, Interactive Monthly Calendar, 4-Hour Editable Bookings List,
+ * and Telegram Bot Concierge Setup Guide for Elara Atelier.
+ */
+
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  ArrowLeft,
+  Calendar as CalendarIcon,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+  Edit3,
+  ExternalLink,
+  Info,
+  Lock,
+  Phone,
+  Send,
+  ShieldCheck,
+  User,
+  XCircle,
+} from 'lucide-react';
+import { CLINIC_CONFIG, COUNTRY_CODES } from '../../config/clinicConfig';
+import { useAuth, type BookingRecord } from '../../context/AuthContext';
+import { TREATMENTS } from '../../data/clinicData';
+import {
+  buildCalendarMonthGrid,
+  buildTelegramBotDeepLink,
+  calculateAge,
+  canEditBooking,
+  extractBookingIsoDate,
+  formatPreferredDateTime,
+  getRemainingEditWindow,
+  resolveEffectiveTelegram,
+  sanitizeNameInput,
+  sanitizePhoneDigits,
+  type TelegramContactMethod,
+} from '../../utils/booking';
+import AtelierDatePicker from '../reactbits/AtelierDatePicker';
+import GlideSelect, { type GlideSelectOption } from '../reactbits/GlideSelect';
+import LatticeLoader from '../reactbits/LatticeLoader';
+import PatientAvatar from '../ui/PatientAvatar';
+
+export interface ProfileSectionProps {
+  onBackToStudio: () => void;
+  onBookNewVisit: () => void;
+  onNotify: (title: string, description: string) => void;
+}
+
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
+
+/**
+ * Patient Profile dashboard with monthly calendar, 4-hour editable bookings,
+ * 18+ patient identity summary, and Telegram Bot concierge integration.
+ */
+export const ProfileSection: React.FC<ProfileSectionProps> = ({
+  onBackToStudio,
+  onBookNewVisit,
+  onNotify,
+}) => {
+  const {
+    user,
+    userPhotoUrl,
+    profile,
+    profileLoading,
+    bookings,
+    bookingsLoading,
+    telegramStatus,
+    saveUserProfile,
+    editBookingRecord,
+    cancelBookingRecord,
+  } = useAuth();
+
+  const [nowMs, setNowMs] = useState<number>(() => Date.now());
+  const [calendarCursor, setCalendarCursor] = useState<{ year: number; month: number }>(() => {
+    const now = new Date();
+    return { year: now.getFullYear(), month: now.getMonth() };
+  });
+  const [selectedIsoDate, setSelectedIsoDate] = useState<string | null>(null);
+
+  // Profile editor state
+  const [editingProfile, setEditingProfile] = useState(false);
+  const [profileForm, setProfileForm] = useState({
+    fullName: '',
+    phoneCountryCode: '+1',
+    phoneNumber: '',
+    dob: '',
+    telegramSameAsPhone: false,
+    telegramMethod: 'username' as TelegramContactMethod,
+    telegramValue: '',
+  });
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const [savingProfile, setSavingProfile] = useState(false);
+
+  // Booking inline editor state
+  const [editingBookingId, setEditingBookingId] = useState<string | null>(null);
+  const [bookingEditDraft, setBookingEditDraft] = useState({
+    treatmentId: TREATMENTS[0].id,
+    preferredDateTime: '',
+    phoneCountryCode: '+1',
+    phoneNumber: '',
+    telegramSameAsPhone: false,
+    telegramMethod: 'username' as TelegramContactMethod,
+    telegramValue: '',
+  });
+  const [bookingEditError, setBookingEditError] = useState<string | null>(null);
+  const [savingBookingEdit, setSavingBookingEdit] = useState(false);
+  const [confirmCancelId, setConfirmCancelId] = useState<string | null>(null);
+  const [showBotPlan, setShowBotPlan] = useState(false);
+
+  // Refresh 4-hour countdown timer every 30 seconds
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      setNowMs(Date.now());
+    }, 30000);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  // Sync profile form when Firestore profile arrives
+  useEffect(() => {
+    if (profile) {
+      const fullPhone = `${profile.phoneCountryCode}${sanitizePhoneDigits(profile.phoneNumber)}`;
+      const matchesPhone =
+        profile.telegramMethod === 'phone' &&
+        profile.telegramValue.replace(/\s+/g, '') === fullPhone;
+      setProfileForm({
+        fullName: profile.fullName,
+        phoneCountryCode: profile.phoneCountryCode,
+        phoneNumber: profile.phoneNumber,
+        dob: profile.dob,
+        telegramSameAsPhone: matchesPhone,
+        telegramMethod: matchesPhone ? 'username' : profile.telegramMethod,
+        telegramValue: matchesPhone ? '' : profile.telegramValue,
+      });
+    } else if (user) {
+      setProfileForm(prev => ({
+        ...prev,
+        fullName: prev.fullName || sanitizeNameInput(user.displayName || ''),
+      }));
+    }
+  }, [profile, user]);
+
+  // Map YYYY-MM-DD -> active bookings on that date for the calendar
+  const bookingsByDate = useMemo(() => {
+    const map = new Map<string, BookingRecord[]>();
+    for (const item of bookings) {
+      if (item.status === 'cancelled') continue;
+      const iso = extractBookingIsoDate(item.preferredDateTime);
+      if (!iso) continue;
+      const existingList = map.get(iso) ?? [];
+      existingList.push(item);
+      map.set(iso, existingList);
+    }
+    return map;
+  }, [bookings]);
+
+  const calendarGrid = useMemo(
+    () => buildCalendarMonthGrid(calendarCursor.year, calendarCursor.month),
+    [calendarCursor.year, calendarCursor.month]
+  );
+
+  const monthTitle = useMemo(() => {
+    return new Date(calendarCursor.year, calendarCursor.month, 1).toLocaleString('en-US', {
+      month: 'long',
+      year: 'numeric',
+    });
+  }, [calendarCursor.year, calendarCursor.month]);
+
+  const upcomingBookings = useMemo(
+    () =>
+      bookings
+        .filter(b => b.status !== 'cancelled')
+        .slice()
+        .sort((a, b) => a.preferredDateTime.localeCompare(b.preferredDateTime)),
+    [bookings]
+  );
+
+  const displayedBookings = useMemo(() => {
+    if (!selectedIsoDate) return bookings;
+    return bookings.filter(b => extractBookingIsoDate(b.preferredDateTime) === selectedIsoDate);
+  }, [bookings, selectedIsoDate]);
+
+  const patientAge = profile?.dob ? calculateAge(profile.dob) : null;
+
+  const countryCodeOptions: GlideSelectOption[] = useMemo(
+    () => COUNTRY_CODES.map(opt => ({ value: opt.code, label: opt.label })),
+    []
+  );
+
+  const treatmentOptions: GlideSelectOption[] = useMemo(
+    () =>
+      TREATMENTS.map(item => ({
+        value: item.id,
+        label: item.name,
+        tag: item.startingPrice,
+      })),
+    []
+  );
+
+  /**
+   * Shift the calendar month backward or forward by delta months.
+   * Inputs: delta (-1 or +1).
+   */
+  const shiftMonth = (delta: number) => {
+    setCalendarCursor(prev => {
+      const next = new Date(prev.year, prev.month + delta, 1);
+      return { year: next.getFullYear(), month: next.getMonth() };
+    });
+  };
+
+  /**
+   * Begin inline editing for a specific booking within its 4-hour window.
+   * Inputs: BookingRecord item.
+   */
+  const startEditingBooking = (booking: BookingRecord) => {
+    const fullPhone = `${booking.phoneCountryCode}${sanitizePhoneDigits(booking.phoneNumber)}`;
+    const matchesPhone =
+      booking.telegramMethod === 'phone' &&
+      booking.telegramValue.replace(/\s+/g, '') === fullPhone;
+    setEditingBookingId(booking.id);
+    setBookingEditError(null);
+    setConfirmCancelId(null);
+    setBookingEditDraft({
+      treatmentId: booking.treatmentId,
+      preferredDateTime: booking.preferredDateTime,
+      phoneCountryCode: booking.phoneCountryCode,
+      phoneNumber: booking.phoneNumber,
+      telegramSameAsPhone: matchesPhone,
+      telegramMethod: matchesPhone ? 'username' : booking.telegramMethod,
+      telegramValue: matchesPhone ? '' : booking.telegramValue,
+    });
+  };
+
+  /**
+   * Submit updated booking details to Firestore.
+   * Inputs: bookingId string.
+   */
+  const handleSaveBookingEdit = async (bookingId: string) => {
+    setBookingEditError(null);
+    setSavingBookingEdit(true);
+    try {
+      const resolvedTelegram = resolveEffectiveTelegram(bookingEditDraft);
+      await editBookingRecord(bookingId, {
+        ...bookingEditDraft,
+        telegramMethod: resolvedTelegram.method,
+        telegramValue: resolvedTelegram.value,
+      });
+      setEditingBookingId(null);
+      onNotify('Booking Updated', 'Your studio visit changes have been saved.');
+    } catch (err) {
+      setBookingEditError(err instanceof Error ? err.message : 'Unable to update booking.');
+    } finally {
+      setSavingBookingEdit(false);
+    }
+  };
+
+  /**
+   * Cancel a booking within the 4-hour window.
+   * Inputs: bookingId string.
+   */
+  const handleCancelBooking = async (bookingId: string) => {
+    setBookingEditError(null);
+    setSavingBookingEdit(true);
+    try {
+      await cancelBookingRecord(bookingId);
+      setConfirmCancelId(null);
+      setEditingBookingId(null);
+      onNotify('Booking Cancelled', 'Your consultation request has been cancelled.');
+    } catch (err) {
+      setBookingEditError(err instanceof Error ? err.message : 'Unable to cancel booking.');
+    } finally {
+      setSavingBookingEdit(false);
+    }
+  };
+
+  /**
+   * Save edited patient profile details to Firestore.
+   */
+  const handleSaveProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setProfileError(null);
+    setSavingProfile(true);
+    try {
+      const resolvedTelegram = resolveEffectiveTelegram(profileForm);
+      await saveUserProfile({
+        fullName: profileForm.fullName,
+        phoneCountryCode: profileForm.phoneCountryCode,
+        phoneNumber: profileForm.phoneNumber,
+        dob: profileForm.dob,
+        telegramSameAsPhone: profileForm.telegramSameAsPhone,
+        telegramMethod: resolvedTelegram.method,
+        telegramValue: resolvedTelegram.value,
+      });
+      setEditingProfile(false);
+      onNotify('Profile Saved', 'Patient details and Telegram preferences updated.');
+    } catch (err) {
+      setProfileError(err instanceof Error ? err.message : 'Could not save profile.');
+    } finally {
+      setSavingProfile(false);
+    }
+  };
+
+  if (!user) {
+    return (
+      <section className="min-h-[70vh] bg-[#FAF7F2] pt-28 pb-20">
+        <div className="mx-auto max-w-3xl px-5 text-center sm:px-8">
+          <h1 className="font-serif text-3xl font-semibold text-[#1F1B18]">
+            Sign In Required for Patient Profile
+          </h1>
+          <p className="mt-3 text-sm text-[#6E655F]">
+            Please sign in to inspect your upcoming calendar, edit bookings within 4 hours, and
+            manage your Telegram concierge settings.
+          </p>
+          <button
+            type="button"
+            onClick={onBackToStudio}
+            className="mt-6 inline-flex h-11 cursor-pointer items-center gap-2 rounded-xl bg-[#1F1B18] px-6 text-xs font-semibold tracking-[0.14em] text-[#FAF7F2] uppercase"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Return to Studio
+          </button>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section
+      aria-label="Patient Profile and Schedule Calendar"
+      className="min-h-screen bg-[#FAF7F2] pt-28 pb-20 sm:pt-32"
+    >
+      <div className="mx-auto max-w-7xl px-5 sm:px-8">
+        {/* Top Action & Patient Header */}
+        <div className="flex flex-col justify-between gap-6 border-b border-[#E2D9CE] pb-8 lg:flex-row lg:items-end">
+          <div>
+            <button
+              type="button"
+              onClick={onBackToStudio}
+              className="inline-flex cursor-pointer items-center gap-2 text-xs font-semibold tracking-[0.14em] text-[#6E655F] uppercase transition-colors hover:text-[#1F1B18]"
+            >
+              <ArrowLeft className="h-3.5 w-3.5 text-[#B68D5E]" />
+              Back to Studio Showcase
+            </button>
+            <div className="mt-4 flex items-center gap-4">
+              <PatientAvatar
+                src={userPhotoUrl}
+                name={profile?.fullName || user.displayName}
+                size="lg"
+              />
+              <div>
+                <h1 className="font-serif text-3xl font-semibold tracking-tight text-[#1F1B18] sm:text-4xl lg:text-5xl">
+                  {profile?.fullName || user.displayName || 'Patient Profile'}
+                </h1>
+                <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[#6E655F]">
+                  <span>{profile?.email || user.email}</span>
+                  <span aria-hidden="true">·</span>
+                  <span className="inline-flex items-center gap-1 text-[#4B6B50]">
+                    <ShieldCheck className="h-3.5 w-3.5" />
+                    {patientAge !== null ? `Age ${patientAge} Verified (18+)` : '18+ Profile Setup'}
+                  </span>
+                  <span aria-hidden="true">·</span>
+                  <span className="tabular-nums">
+                    {upcomingBookings.length} Active Visit{upcomingBookings.length === 1 ? '' : 's'}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="rounded-xl border border-[#E2D9CE] bg-[#EFE9E0] px-4 py-2.5 text-xs font-medium text-[#1F1B18]">
+              Clinic Hours · {CLINIC_CONFIG.hoursShort}
+            </div>
+            <button
+              type="button"
+              onClick={onBookNewVisit}
+              className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-xl bg-[#1F1B18] px-5 text-xs font-semibold tracking-[0.12em] text-[#FAF7F2] uppercase transition-colors hover:bg-[#352F2B]"
+            >
+              <CalendarIcon className="h-3.5 w-3.5 text-[#B68D5E]" />
+              Book New Visit
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-10 grid grid-cols-1 gap-8 lg:grid-cols-12">
+          {/* Left Column: Patient Details + Telegram Bot Card */}
+          <div className="space-y-6 lg:col-span-5">
+            {/* Patient Contact & Identity Card */}
+            <div className="rounded-2xl border border-[#E2D9CE] bg-[#EFE9E0] p-6">
+              <div className="flex items-center justify-between gap-3 border-b border-[#E2D9CE] pb-4">
+                <div className="flex items-center gap-2.5">
+                  <PatientAvatar
+                    src={userPhotoUrl}
+                    name={profile?.fullName || user.displayName}
+                    size="sm"
+                  />
+                  <h2 className="font-serif text-xl font-semibold text-[#1F1B18]">
+                    Patient Record
+                  </h2>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingProfile(prev => !prev);
+                    setProfileError(null);
+                  }}
+                  className="inline-flex cursor-pointer items-center gap-1.5 text-xs font-semibold tracking-[0.12em] text-[#1F1B18] uppercase underline underline-offset-4 hover:text-[#B68D5E]"
+                >
+                  <Edit3 className="h-3.5 w-3.5" />
+                  {editingProfile ? 'Close' : 'Edit Details'}
+                </button>
+              </div>
+
+              {profileLoading ? (
+                <div className="py-8">
+                  <LatticeLoader
+                    status="working"
+                    color="#B68D5E"
+                    label="Loading profile"
+                    showTimer={false}
+                  />
+                </div>
+              ) : editingProfile || !profile ? (
+                <form onSubmit={handleSaveProfile} className="mt-4 space-y-3.5" noValidate>
+                  {!profile ? (
+                    <p className="rounded-lg border border-[#B68D5E]/40 bg-[#FAF7F2] p-3 text-xs text-[#6E655F]">
+                      Complete your 18+ patient record below so consultation requests pre-fill
+                      automatically.
+                    </p>
+                  ) : null}
+                  {profileError ? (
+                    <p className="text-xs text-[#9E3B33]" role="alert">
+                      {profileError}
+                    </p>
+                  ) : null}
+
+                  <div>
+                    <label
+                      htmlFor="prof-name"
+                      className="mb-1 block text-[11px] font-semibold tracking-[0.12em] text-[#1F1B18] uppercase"
+                    >
+                      Full Name (Letters Only)
+                    </label>
+                    <input
+                      id="prof-name"
+                      type="text"
+                      value={profileForm.fullName}
+                      onChange={e =>
+                        setProfileForm(prev => ({
+                          ...prev,
+                          fullName: sanitizeNameInput(e.target.value),
+                        }))
+                      }
+                      className="h-10 w-full rounded-lg border border-[#E2D9CE] bg-[#FAF7F2] px-3 text-sm text-[#1F1B18]"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div>
+                      <label
+                        htmlFor="prof-dob"
+                        className="mb-1 block text-[11px] font-semibold tracking-[0.12em] text-[#1F1B18] uppercase"
+                      >
+                        Date of Birth (18+)
+                      </label>
+                      <AtelierDatePicker
+                        id="prof-dob"
+                        mode="date"
+                        value={profileForm.dob}
+                        onChange={nextDob => setProfileForm(prev => ({ ...prev, dob: nextDob }))}
+                        placeholder="YYYY-MM-DD"
+                        ariaLabel="Date of Birth (18+)"
+                        defaultOpenYear={1995}
+                        surfaceColor="#FAF7F2"
+                      />
+                    </div>
+                    <div>
+                      <label
+                        htmlFor="prof-code"
+                        className="mb-1 block text-[11px] font-semibold tracking-[0.12em] text-[#1F1B18] uppercase"
+                      >
+                        Country Code
+                      </label>
+                      <GlideSelect
+                        options={countryCodeOptions}
+                        value={profileForm.phoneCountryCode}
+                        onChange={code =>
+                          setProfileForm(prev => ({ ...prev, phoneCountryCode: code }))
+                        }
+                        showTags={false}
+                        size="lg"
+                        radius={8}
+                        menuWidth={170}
+                        surfaceColor="#FAF7F2"
+                        highlightColor="#EFE9E0"
+                        accentColor="#B68D5E"
+                        textColor="#1F1B18"
+                        ariaLabel="Profile phone country code"
+                        className="w-full rounded-lg border border-[#E2D9CE]"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="prof-phone"
+                      className="mb-1 block text-[11px] font-semibold tracking-[0.12em] text-[#1F1B18] uppercase"
+                    >
+                      Phone Number
+                    </label>
+                    <input
+                      id="prof-phone"
+                      type="tel"
+                      value={profileForm.phoneNumber}
+                      onChange={e =>
+                        setProfileForm(prev => ({
+                          ...prev,
+                          phoneNumber: sanitizePhoneDigits(e.target.value),
+                        }))
+                      }
+                      className="h-10 w-full rounded-lg border border-[#E2D9CE] bg-[#FAF7F2] px-3 text-sm text-[#1F1B18] tabular-nums"
+                    />
+                    <label className="mt-2 inline-flex cursor-pointer items-center gap-2 text-xs text-[#6E655F]">
+                      <input
+                        type="checkbox"
+                        checked={profileForm.telegramSameAsPhone}
+                        onChange={e =>
+                          setProfileForm(prev => ({
+                            ...prev,
+                            telegramSameAsPhone: e.target.checked,
+                            telegramMethod: e.target.checked ? 'username' : prev.telegramMethod,
+                            telegramValue:
+                              e.target.checked && prev.telegramMethod === 'phone'
+                                ? ''
+                                : prev.telegramValue,
+                          }))
+                        }
+                        className="h-3.5 w-3.5 rounded border-[#E2D9CE] accent-[#1F1B18]"
+                      />
+                      <span>This phone number is the same as my Telegram number</span>
+                    </label>
+                  </div>
+
+                  <div>
+                    <div className="mb-1.5 flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-semibold tracking-[0.12em] text-[#1F1B18] uppercase">
+                        {profileForm.telegramSameAsPhone
+                          ? 'Telegram Username (Optional)'
+                          : 'Telegram Contact'}
+                      </span>
+                      {profileForm.telegramSameAsPhone ? (
+                        <span className="text-[10px] font-semibold tracking-[0.1em] text-[#4B6B50] uppercase">
+                          Using Phone · Username Optional
+                        </span>
+                      ) : (
+                        <div className="flex rounded-md border border-[#E2D9CE] bg-[#FAF7F2] p-0.5">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setProfileForm(prev => ({
+                                ...prev,
+                                telegramMethod: 'username',
+                                telegramValue: '',
+                              }))
+                            }
+                            className={`cursor-pointer rounded px-2 py-0.5 text-[10px] font-semibold uppercase ${
+                              profileForm.telegramMethod === 'username'
+                                ? 'bg-[#1F1B18] text-[#FAF7F2]'
+                                : 'text-[#6E655F]'
+                            }`}
+                          >
+                            Username
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setProfileForm(prev => ({
+                                ...prev,
+                                telegramMethod: 'phone',
+                                telegramValue: prev.phoneNumber
+                                  ? `${prev.phoneCountryCode}${prev.phoneNumber}`
+                                  : '',
+                              }))
+                            }
+                            className={`cursor-pointer rounded px-2 py-0.5 text-[10px] font-semibold uppercase ${
+                              profileForm.telegramMethod === 'phone'
+                                ? 'bg-[#1F1B18] text-[#FAF7F2]'
+                                : 'text-[#6E655F]'
+                            }`}
+                          >
+                            Phone
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                    <input
+                      type="text"
+                      value={profileForm.telegramValue}
+                      onChange={e =>
+                        setProfileForm(prev => ({ ...prev, telegramValue: e.target.value }))
+                      }
+                      placeholder={
+                        profileForm.telegramSameAsPhone
+                          ? '@camille_laurent (optional)'
+                          : profileForm.telegramMethod === 'username'
+                            ? '@camille_laurent'
+                            : '+13105550148'
+                      }
+                      className="h-10 w-full rounded-lg border border-[#E2D9CE] bg-[#FAF7F2] px-3 text-sm text-[#1F1B18]"
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={savingProfile}
+                    className="h-10 w-full cursor-pointer rounded-lg bg-[#1F1B18] text-xs font-semibold tracking-[0.12em] text-[#FAF7F2] uppercase transition-colors hover:bg-[#352F2B] disabled:opacity-50"
+                  >
+                    {savingProfile ? 'Saving Profile…' : 'Save Patient Record'}
+                  </button>
+                </form>
+              ) : (
+                <dl className="mt-4 space-y-3 text-sm">
+                  <div className="flex justify-between gap-4">
+                    <dt className="text-[#6E655F]">Phone</dt>
+                    <dd className="font-medium text-[#1F1B18] tabular-nums">
+                      {profile.phoneCountryCode} {profile.phoneNumber}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between gap-4">
+                    <dt className="text-[#6E655F]">Date of Birth</dt>
+                    <dd className="font-medium text-[#1F1B18] tabular-nums">
+                      {profile.dob} {patientAge !== null ? `(Age ${patientAge})` : ''}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between gap-4">
+                    <dt className="text-[#6E655F]">
+                      Telegram ({profile.telegramMethod === 'username' ? '@handle' : 'Phone'})
+                    </dt>
+                    <dd className="font-medium text-[#1F1B18]">{profile.telegramValue}</dd>
+                  </div>
+                  <div className="flex justify-between gap-4 border-t border-[#E2D9CE] pt-3">
+                    <dt className="text-[#6E655F]">Total Bookings</dt>
+                    <dd className="font-semibold text-[#1F1B18] tabular-nums">{bookings.length}</dd>
+                  </div>
+                </dl>
+              )}
+            </div>
+
+            {/* Telegram Bot Connection & Setup Plan */}
+            <div className="rounded-2xl border border-[#E2D9CE] bg-[#EFE9E0] p-6">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-[11px] font-semibold tracking-[0.18em] text-[#B68D5E] uppercase">
+                    Telegram Bot Concierge
+                  </p>
+                  <h2 className="mt-1 font-serif text-xl font-semibold text-[#1F1B18]">
+                    @{telegramStatus.botUsername}
+                  </h2>
+                </div>
+                <span className="text-xs font-medium text-[#6E655F]">
+                  {telegramStatus.botConfigured ? 'Bot API Active' : 'Deep-Link Ready'}
+                </span>
+              </div>
+
+              <p className="mt-2.5 text-xs leading-relaxed text-[#6E655F]">
+                Telegram bots require a one-time <code className="text-[#1F1B18]">/start</code>{' '}
+                message from your account before they can send consultation updates directly to your
+                chat.
+              </p>
+
+              <div className="mt-4 flex flex-wrap gap-2.5">
+                <a
+                  href={buildTelegramBotDeepLink(
+                    telegramStatus.botUsername,
+                    user.uid.slice(0, 16)
+                  )}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex h-10 items-center gap-2 rounded-lg bg-[#1F1B18] px-4 text-xs font-semibold tracking-[0.1em] text-[#FAF7F2] uppercase no-underline transition-colors hover:bg-[#352F2B]"
+                >
+                  <Send className="h-3.5 w-3.5 text-[#B68D5E]" />
+                  Connect Telegram Bot
+                  <ExternalLink className="h-3 w-3 opacity-75" />
+                </a>
+
+                <button
+                  type="button"
+                  onClick={() => setShowBotPlan(prev => !prev)}
+                  className="inline-flex h-10 cursor-pointer items-center gap-1.5 rounded-lg border border-[#E2D9CE] bg-[#FAF7F2] px-3.5 text-xs font-semibold tracking-[0.1em] text-[#1F1B18] uppercase transition-colors hover:border-[#B68D5E]"
+                >
+                  <Info className="h-3.5 w-3.5 text-[#B68D5E]" />
+                  {showBotPlan ? 'Hide Bot Setup Plan' : 'Bot Username Setup Plan'}
+                </button>
+              </div>
+
+              {showBotPlan ? (
+                <ol className="mt-4 space-y-2 border-t border-[#E2D9CE] pt-4 text-xs leading-relaxed text-[#6E655F]">
+                  <li>
+                    <strong className="text-[#1F1B18]">1. Create @username in @BotFather:</strong>{' '}
+                    Message <code className="text-[#1F1B18]">@BotFather</code> on Telegram, send{' '}
+                    <code className="text-[#1F1B18]">/newbot</code>, set display name{' '}
+                    <em>Elara Atelier Concierge</em>, and choose a username ending in{' '}
+                    <code className="text-[#1F1B18]">Bot</code> (e.g.{' '}
+                    <code className="text-[#1F1B18]">ElaraAtelierBot</code>).
+                  </li>
+                  <li>
+                    <strong className="text-[#1F1B18]">2. Configure Secrets:</strong> Add{' '}
+                    <code className="text-[#1F1B18]">TELEGRAM_BOT_TOKEN</code> and{' '}
+                    <code className="text-[#1F1B18]">TELEGRAM_BOT_USERNAME</code> to your
+                    environment variables.
+                  </li>
+                  <li>
+                    <strong className="text-[#1F1B18]">3. Link Webhook &amp; /start:</strong> Point
+                    Telegram <code className="text-[#1F1B18]">setWebhook</code> to{' '}
+                    <code className="text-[#1F1B18]">/api/telegram/webhook</code> so patients tapping{' '}
+                    <strong>Connect Telegram Bot</strong> bind their <code className="text-[#1F1B18]">chat_id</code>{' '}
+                    automatically for direct consultation reminders.
+                  </li>
+                </ol>
+              ) : null}
+            </div>
+          </div>
+
+          {/* Right Column: Interactive Monthly Calendar + 4-Hour Editable Bookings List */}
+          <div className="space-y-6 lg:col-span-7">
+            {/* Interactive Monthly Calendar */}
+            <div className="rounded-2xl border border-[#E2D9CE] bg-[#EFE9E0] p-6">
+              <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[#E2D9CE] pb-4">
+                <div>
+                  <p className="text-[11px] font-semibold tracking-[0.18em] text-[#B68D5E] uppercase">
+                    Visit Schedule
+                  </p>
+                  <h2 className="mt-0.5 font-serif text-2xl font-semibold text-[#1F1B18]">
+                    {monthTitle}
+                  </h2>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {selectedIsoDate ? (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedIsoDate(null)}
+                      className="cursor-pointer rounded-lg border border-[#B68D5E] bg-[#FAF7F2] px-3 py-1.5 text-xs font-semibold text-[#1F1B18]"
+                    >
+                      Show All ({bookings.length})
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => shiftMonth(-1)}
+                    aria-label="Previous month"
+                    className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg border border-[#E2D9CE] bg-[#FAF7F2] text-[#1F1B18] hover:border-[#B68D5E]"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => shiftMonth(1)}
+                    aria-label="Next month"
+                    className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg border border-[#E2D9CE] bg-[#FAF7F2] text-[#1F1B18] hover:border-[#B68D5E]"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-4 grid grid-cols-7 gap-1.5 text-center text-[11px] font-semibold tracking-[0.12em] text-[#6E655F] uppercase">
+                {WEEKDAYS.map(day => (
+                  <div key={day} className="py-1.5">
+                    {day}
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-1 grid grid-cols-7 gap-1.5">
+                {calendarGrid.map(cell => {
+                  const dayBookings = bookingsByDate.get(cell.isoDate) ?? [];
+                  const hasBookings = dayBookings.length > 0;
+                  const isSelected = selectedIsoDate === cell.isoDate;
+
+                  return (
+                    <button
+                      key={cell.isoDate}
+                      type="button"
+                      onClick={() =>
+                        setSelectedIsoDate(prev => (prev === cell.isoDate ? null : cell.isoDate))
+                      }
+                      aria-label={`${cell.isoDate}${hasBookings ? `, ${dayBookings.length} scheduled visit` : ''}`}
+                      className={`relative flex h-12 cursor-pointer flex-col items-center justify-center rounded-xl border text-xs tabular-nums transition-colors sm:h-14 ${
+                        isSelected
+                          ? 'border-[#1F1B18] bg-[#1F1B18] text-[#FAF7F2]'
+                          : hasBookings
+                            ? 'border-[#B68D5E] bg-[#FAF7F2] font-semibold text-[#1F1B18] hover:bg-[#E5DACB]'
+                            : cell.inCurrentMonth
+                              ? 'border-[#E2D9CE] bg-[#FAF7F2]/70 text-[#1F1B18] hover:border-[#B68D5E]'
+                              : 'border-transparent bg-transparent text-[#6E655F]/45 hover:bg-[#FAF7F2]/40'
+                      }`}
+                    >
+                      <span>{cell.dayNumber}</span>
+                      {hasBookings ? (
+                        <span
+                          className={`mt-0.5 text-[10px] font-semibold ${
+                            isSelected ? 'text-[#B68D5E]' : 'text-[#B68D5E]'
+                          }`}
+                        >
+                          {dayBookings.length} visit{dayBookings.length > 1 ? 's' : ''}
+                        </span>
+                      ) : cell.isToday ? (
+                        <span className="mt-0.5 text-[9px] tracking-wider uppercase opacity-75">
+                          Today
+                        </span>
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Bookings List with 4-Hour Edit Window */}
+            <div className="rounded-2xl border border-[#E2D9CE] bg-[#EFE9E0] p-6">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#E2D9CE] pb-4">
+                <div>
+                  <h2 className="font-serif text-2xl font-semibold text-[#1F1B18]">
+                    {selectedIsoDate
+                      ? `Visits on ${selectedIsoDate}`
+                      : 'Your Consultation Bookings'}
+                  </h2>
+                  <p className="mt-1 text-xs text-[#6E655F]">
+                    Modifications and cancellations are permitted for 4 hours from the time of
+                    booking.
+                  </p>
+                </div>
+                <span className="text-xs font-semibold text-[#1F1B18] tabular-nums">
+                  {displayedBookings.length} record{displayedBookings.length === 1 ? '' : 's'}
+                </span>
+              </div>
+
+              {bookingEditError ? (
+                <div
+                  role="alert"
+                  className="mt-4 rounded-xl border border-[#9E3B33]/40 bg-[#9E3B33]/10 p-3 text-xs text-[#9E3B33]"
+                >
+                  {bookingEditError}
+                </div>
+              ) : null}
+
+              {bookingsLoading ? (
+                <div className="py-12">
+                  <LatticeLoader
+                    status="working"
+                    color="#B68D5E"
+                    label="Loading consultations"
+                    showTimer={false}
+                  />
+                </div>
+              ) : displayedBookings.length === 0 ? (
+                <div className="py-12 text-center">
+                  <CalendarIcon className="mx-auto h-8 w-8 text-[#B68D5E]" aria-hidden="true" />
+                  <h3 className="mt-3 font-serif text-xl font-semibold text-[#1F1B18]">
+                    {selectedIsoDate
+                      ? 'No consultations on this date'
+                      : 'No consultations scheduled yet'}
+                  </h3>
+                  <p className="mx-auto mt-1.5 max-w-sm text-sm text-[#6E655F]">
+                    {selectedIsoDate
+                      ? 'Select another highlighted calendar day or view all upcoming consultations.'
+                      : 'Reserve your consultation in the booking studio and it will appear here for 4-hour management.'}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={selectedIsoDate ? () => setSelectedIsoDate(null) : onBookNewVisit}
+                    className="mt-5 inline-flex h-10 cursor-pointer items-center gap-2 rounded-lg bg-[#1F1B18] px-5 text-xs font-semibold tracking-[0.12em] text-[#FAF7F2] uppercase"
+                  >
+                    {selectedIsoDate ? 'Show All Bookings' : 'Schedule a Consultation'}
+                  </button>
+                </div>
+              ) : (
+                <div className="mt-5 space-y-4">
+                  {displayedBookings.map(booking => {
+                    const windowStatus = getRemainingEditWindow(
+                      booking.createdAtMs,
+                      nowMs,
+                      booking.status
+                    );
+                    const editable = canEditBooking(booking.createdAtMs, nowMs, booking.status);
+                    const isEditing = editingBookingId === booking.id;
+
+                    return (
+                      <article
+                        key={booking.id}
+                        className="rounded-xl border border-[#E2D9CE] bg-[#FAF7F2] p-5"
+                      >
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <div className="flex flex-wrap items-center gap-2 text-xs">
+                              <span
+                                className={`inline-flex items-center gap-1 font-semibold tracking-[0.12em] uppercase ${
+                                  booking.status === 'cancelled'
+                                    ? 'text-[#9E3B33]'
+                                    : 'text-[#4B6B50]'
+                                }`}
+                              >
+                                {booking.status === 'cancelled' ? (
+                                  <XCircle className="h-3.5 w-3.5" />
+                                ) : (
+                                  <CheckCircle2 className="h-3.5 w-3.5" />
+                                )}
+                                {booking.status}
+                              </span>
+                              <span aria-hidden="true" className="text-[#6E655F]">
+                                ·
+                              </span>
+                              <span className="inline-flex items-center gap-1 text-[#6E655F] tabular-nums">
+                                {editable ? (
+                                  <Clock className="h-3.5 w-3.5 text-[#B68D5E]" />
+                                ) : (
+                                  <Lock className="h-3.5 w-3.5 text-[#6E655F]" />
+                                )}
+                                {windowStatus.label}
+                              </span>
+                            </div>
+
+                            <h3 className="mt-1.5 font-serif text-xl font-semibold text-[#1F1B18]">
+                              {booking.treatmentName}
+                            </h3>
+                            <p className="mt-1 text-sm font-medium text-[#1F1B18] tabular-nums">
+                              {formatPreferredDateTime(booking.preferredDateTime)}
+                            </p>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-2">
+                            {editable ? (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    isEditing
+                                      ? setEditingBookingId(null)
+                                      : startEditingBooking(booking)
+                                  }
+                                  className="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-lg border border-[#E2D9CE] bg-[#EFE9E0] px-3 text-xs font-semibold tracking-[0.1em] text-[#1F1B18] uppercase hover:border-[#B68D5E]"
+                                >
+                                  <Edit3 className="h-3.5 w-3.5 text-[#B68D5E]" />
+                                  {isEditing ? 'Close Editor' : 'Edit Visit'}
+                                </button>
+                                {confirmCancelId === booking.id ? (
+                                  <div className="flex items-center gap-1.5">
+                                    <button
+                                      type="button"
+                                      disabled={savingBookingEdit}
+                                      onClick={() => handleCancelBooking(booking.id)}
+                                      className="h-9 cursor-pointer rounded-lg bg-[#9E3B33] px-3 text-xs font-semibold text-[#FAF7F2] uppercase"
+                                    >
+                                      Confirm Cancel
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setConfirmCancelId(null)}
+                                      className="h-9 cursor-pointer rounded-lg border border-[#E2D9CE] px-2.5 text-xs text-[#6E655F]"
+                                    >
+                                      Keep
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => setConfirmCancelId(booking.id)}
+                                    className="h-9 cursor-pointer rounded-lg border border-[#E2D9CE] px-3 text-xs font-semibold tracking-[0.1em] text-[#9E3B33] uppercase hover:bg-[#9E3B33]/10"
+                                  >
+                                    Cancel
+                                  </button>
+                                )}
+                              </>
+                            ) : null}
+                          </div>
+                        </div>
+
+                        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-[#E2D9CE] pt-3 text-xs text-[#6E655F]">
+                          <span className="tabular-nums">
+                            Phone: {booking.phoneCountryCode} {booking.phoneNumber}
+                          </span>
+                          <span aria-hidden="true">·</span>
+                          <span>
+                            Telegram ({booking.telegramMethod}): {booking.telegramValue}
+                          </span>
+                          <span aria-hidden="true">·</span>
+                          <a
+                            href={buildTelegramBotDeepLink(
+                              telegramStatus.botUsername,
+                              booking.id
+                            )}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 font-medium text-[#1F1B18] underline underline-offset-4 hover:text-[#B68D5E]"
+                          >
+                            <Send className="h-3 w-3 text-[#B68D5E]" />
+                            Open in Telegram Bot
+                          </a>
+                        </div>
+
+                        {!editable && booking.status !== 'cancelled' ? (
+                          <p className="mt-2.5 flex items-center gap-1.5 text-xs text-[#6E655F]">
+                            <Phone className="h-3.5 w-3.5 text-[#B68D5E]" />
+                            4-hour self-edit window ended. Call {CLINIC_CONFIG.phoneDisplay} for
+                            concierge rescheduling.
+                          </p>
+                        ) : null}
+
+                        {/* Inline 4-Hour Booking Editor */}
+                        {isEditing && editable ? (
+                          <div className="mt-4 space-y-3 rounded-xl border border-[#B68D5E]/50 bg-[#EFE9E0]/60 p-4">
+                            <p className="text-xs font-semibold tracking-[0.12em] text-[#1F1B18] uppercase">
+                              Edit Consultation Details
+                            </p>
+
+                            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                              <div>
+                                <span className="mb-1 block text-[11px] font-semibold text-[#6E655F] uppercase">
+                                  Treatment
+                                </span>
+                                <GlideSelect
+                                  options={treatmentOptions}
+                                  value={bookingEditDraft.treatmentId}
+                                  onChange={nextId =>
+                                    setBookingEditDraft(prev => ({ ...prev, treatmentId: nextId }))
+                                  }
+                                  showTags={true}
+                                  size="lg"
+                                  radius={8}
+                                  menuWidth={320}
+                                  surfaceColor="#FAF7F2"
+                                  highlightColor="#EFE9E0"
+                                  accentColor="#B68D5E"
+                                  textColor="#1F1B18"
+                                  ariaLabel="Edit consultation treatment"
+                                  className="w-full rounded-lg border border-[#E2D9CE]"
+                                />
+                              </div>
+
+                              <div>
+                                <label
+                                  htmlFor={`edit-time-${booking.id}`}
+                                  className="mb-1 block text-[11px] font-semibold text-[#6E655F] uppercase"
+                                >
+                                  Preferred Date &amp; Time
+                                </label>
+                                <AtelierDatePicker
+                                  id={`edit-time-${booking.id}`}
+                                  mode="datetime"
+                                  value={bookingEditDraft.preferredDateTime}
+                                  onChange={nextDateTime =>
+                                    setBookingEditDraft(prev => ({
+                                      ...prev,
+                                      preferredDateTime: nextDateTime,
+                                    }))
+                                  }
+                                  ariaLabel="Edit preferred date and time"
+                                  surfaceColor="#FAF7F2"
+                                />
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                              <div>
+                                <span className="mb-1 block text-[11px] font-semibold text-[#6E655F] uppercase">
+                                  Phone
+                                </span>
+                                <div className="flex gap-2">
+                                  <GlideSelect
+                                    options={countryCodeOptions}
+                                    value={bookingEditDraft.phoneCountryCode}
+                                    onChange={code =>
+                                      setBookingEditDraft(prev => ({
+                                        ...prev,
+                                        phoneCountryCode: code,
+                                      }))
+                                    }
+                                    showTags={false}
+                                    size="lg"
+                                    radius={8}
+                                    menuWidth={160}
+                                    surfaceColor="#FAF7F2"
+                                    highlightColor="#EFE9E0"
+                                    accentColor="#B68D5E"
+                                    textColor="#1F1B18"
+                                    ariaLabel="Edit country code"
+                                    className="w-32 shrink-0 rounded-lg border border-[#E2D9CE]"
+                                  />
+                                  <input
+                                    type="tel"
+                                    value={bookingEditDraft.phoneNumber}
+                                    onChange={e =>
+                                      setBookingEditDraft(prev => ({
+                                        ...prev,
+                                        phoneNumber: sanitizePhoneDigits(e.target.value),
+                                      }))
+                                    }
+                                    className="h-11 flex-1 rounded-lg border border-[#E2D9CE] bg-[#FAF7F2] px-3 text-sm text-[#1F1B18] tabular-nums"
+                                  />
+                                </div>
+                                <label className="mt-2 inline-flex cursor-pointer items-center gap-2 text-xs text-[#6E655F]">
+                                  <input
+                                    type="checkbox"
+                                    checked={bookingEditDraft.telegramSameAsPhone}
+                                    onChange={e =>
+                                      setBookingEditDraft(prev => ({
+                                        ...prev,
+                                        telegramSameAsPhone: e.target.checked,
+                                        telegramMethod: e.target.checked
+                                          ? 'username'
+                                          : prev.telegramMethod,
+                                        telegramValue:
+                                          e.target.checked && prev.telegramMethod === 'phone'
+                                            ? ''
+                                            : prev.telegramValue,
+                                      }))
+                                    }
+                                    className="h-3.5 w-3.5 rounded border-[#E2D9CE] accent-[#1F1B18]"
+                                  />
+                                  <span>Same as Telegram number</span>
+                                </label>
+                              </div>
+
+                              <div>
+                                <div className="mb-1 flex items-center justify-between gap-2">
+                                  <span className="text-[11px] font-semibold text-[#6E655F] uppercase">
+                                    {bookingEditDraft.telegramSameAsPhone
+                                      ? 'Telegram Username (Optional)'
+                                      : 'Telegram'}
+                                  </span>
+                                  {bookingEditDraft.telegramSameAsPhone ? (
+                                    <span className="text-[10px] font-semibold tracking-[0.08em] text-[#4B6B50] uppercase">
+                                      Using Phone
+                                    </span>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setBookingEditDraft(prev => ({
+                                          ...prev,
+                                          telegramMethod:
+                                            prev.telegramMethod === 'username'
+                                              ? 'phone'
+                                              : 'username',
+                                          telegramValue:
+                                            prev.telegramMethod === 'username'
+                                              ? `${prev.phoneCountryCode}${prev.phoneNumber}`
+                                              : '',
+                                        }))
+                                      }
+                                      className="cursor-pointer text-[10px] font-semibold text-[#B68D5E] uppercase underline"
+                                    >
+                                      Switch to{' '}
+                                      {bookingEditDraft.telegramMethod === 'username'
+                                        ? 'Phone'
+                                        : 'Username'}
+                                    </button>
+                                  )}
+                                </div>
+                                <input
+                                  type="text"
+                                  value={bookingEditDraft.telegramValue}
+                                  onChange={e =>
+                                    setBookingEditDraft(prev => ({
+                                      ...prev,
+                                      telegramValue: e.target.value,
+                                    }))
+                                  }
+                                  placeholder={
+                                    bookingEditDraft.telegramSameAsPhone
+                                      ? '@username (optional)'
+                                      : bookingEditDraft.telegramMethod === 'username'
+                                        ? '@username'
+                                        : '+13105550148'
+                                  }
+                                  className="h-11 w-full rounded-lg border border-[#E2D9CE] bg-[#FAF7F2] px-3 text-sm text-[#1F1B18]"
+                                />
+                              </div>
+                            </div>
+
+                            <div className="flex justify-end gap-2 pt-1">
+                              <button
+                                type="button"
+                                onClick={() => setEditingBookingId(null)}
+                                className="h-9 cursor-pointer rounded-lg border border-[#E2D9CE] bg-[#FAF7F2] px-4 text-xs font-semibold text-[#6E655F] uppercase"
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                type="button"
+                                disabled={savingBookingEdit}
+                                onClick={() => handleSaveBookingEdit(booking.id)}
+                                className="h-9 cursor-pointer rounded-lg bg-[#1F1B18] px-4 text-xs font-semibold text-[#FAF7F2] uppercase disabled:opacity-50"
+                              >
+                                {savingBookingEdit ? 'Saving…' : 'Save Changes'}
+                              </button>
+                            </div>
+                          </div>
+                        ) : null}
+                      </article>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+};
+
+export default ProfileSection;
