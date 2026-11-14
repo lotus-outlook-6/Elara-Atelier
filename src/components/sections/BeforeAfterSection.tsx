@@ -197,11 +197,11 @@ export const BeforeAfterSection: React.FC = () => {
   return (
     <section
       id="results"
-      className="border-b border-[#E2D9CE] bg-[#EFE9E0]/55 py-16 sm:py-20 md:py-24"
+      className="border-b border-[#E2D9CE] bg-[#EFE9E0]/55 py-16 sm:py-20 md:py-24 2xl:py-28"
     >
-      <div className="mx-auto max-w-7xl px-5 sm:px-8">
+      <div className="mx-auto max-w-7xl px-4 sm:px-8 2xl:max-w-[1440px]">
         <FadeContent trigger="scroll" effect="fade" duration={0.85} threshold={0.12}>
-          <div className="grid grid-cols-1 items-center gap-10 lg:grid-cols-12 lg:gap-12">
+          <div className="grid grid-cols-1 items-center gap-10 lg:grid-cols-12 lg:gap-12 2xl:gap-16">
             {/* Editorial Copy & Visit-Days Whiteness Slider Column */}
             <div className="lg:col-span-5">
               <p className="text-[11px] font-semibold tracking-[0.22em] text-[#B68D5E] uppercase">
@@ -268,10 +268,10 @@ export const BeforeAfterSection: React.FC = () => {
                   className="mt-3 h-2 w-full cursor-pointer accent-[#1F1B18]"
                 />
 
-                <div className="mt-2 flex items-center justify-between text-[11px] font-medium text-[#6E655F]">
-                  <span>1 Day · 1 Visit (Clean)</span>
+                <div className="mt-2 flex items-center justify-between gap-2 text-[10px] font-medium text-[#6E655F] sm:text-[11px]">
+                  <span>1 Day · 1 Visit</span>
                   <span>7 Days · Mid</span>
-                  <span>14 Days · 2 Visits (Whitest)</span>
+                  <span>14 Days · 2 Visits</span>
                 </div>
               </div>
             </div>
@@ -323,10 +323,10 @@ export const BeforeAfterSection: React.FC = () => {
                 />
 
                 {/* Top Corner Labels */}
-                <span className="pointer-events-none absolute top-4 left-4 rounded-md bg-[#1F1B18]/85 px-2.5 py-1 text-[10px] font-semibold tracking-[0.18em] text-[#FAF7F2] uppercase">
+                <span className="pointer-events-none absolute top-3 left-3 rounded-md bg-[#1F1B18]/85 px-2 py-1 text-[9px] font-semibold tracking-[0.15em] text-[#FAF7F2] uppercase sm:top-4 sm:left-4 sm:px-2.5 sm:text-[10px] sm:tracking-[0.18em]">
                   Before
                 </span>
-                <span className="pointer-events-none absolute top-4 right-4 rounded-md bg-[#FAF7F2]/92 px-2.5 py-1 text-[10px] font-semibold tracking-[0.18em] text-[#1F1B18] uppercase">
+                <span className="pointer-events-none absolute top-3 right-3 rounded-md bg-[#FAF7F2]/92 px-2 py-1 text-[9px] font-semibold tracking-[0.15em] text-[#1F1B18] uppercase sm:top-4 sm:right-4 sm:px-2.5 sm:text-[10px] sm:tracking-[0.18em]">
                   After · {stage.visitTimeLabel}
                 </span>
 

@@ -87,6 +87,22 @@ interface TelegramStatusState {
   botUsername: string;
 }
 
+export interface BotSyncNotice {
+  id: string;
+  title: string;
+  description: string;
+}
+
+export interface ConciergeChatMessage {
+  id: string;
+  chatId?: string;
+  userId?: string | null;
+  sender: 'patient' | 'concierge';
+  text: string;
+  createdAtMs: number;
+  source: 'telegram' | 'website';
+}
+
 interface AuthContextValue {
   user: User | null;
   userPhotoUrl: string | null;
@@ -96,6 +112,12 @@ interface AuthContextValue {
   bookings: BookingRecord[];
   bookingsLoading: boolean;
   telegramStatus: TelegramStatusState;
+  linkedTelegramChatId: string | null;
+  conciergeMessages: ConciergeChatMessage[];
+  conciergeMessagesLoading: boolean;
+  sendConciergeMessage: (text: string) => Promise<{ sentToTelegram: boolean }>;
+  botSyncNotice: BotSyncNotice | null;
+  clearBotSyncNotice: () => void;
   signInWithGoogle: () => Promise<User>;
   signInWithEmail: (email: string, password: string) => Promise<User>;
   registerWithEmail: (values: AccountFormValues) => Promise<User>;
@@ -173,6 +195,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     botConfigured: false,
     botUsername: CLINIC_CONFIG.defaultTelegramBotUsername,
   });
+  const [botSyncNotice, setBotSyncNotice] = useState<BotSyncNotice | null>(null);
+  const [linkedTelegramChatId, setLinkedTelegramChatId] = useState<string | null>(null);
+  const [conciergeMessages, setConciergeMessages] = useState<ConciergeChatMessage[]>([]);
+  const [conciergeMessagesLoading, setConciergeMessagesLoading] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -203,8 +229,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (!nextUser) {
         setProfile(null);
         setBookings([]);
+        setLinkedTelegramChatId(null);
+        setConciergeMessages([]);
         setProfileLoading(false);
         setBookingsLoading(false);
+        setConciergeMessagesLoading(false);
       }
     });
     return () => unsubscribe();
@@ -290,6 +319,205 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       unsubBookings();
     };
   }, [authReady, user]);
+
+  // Two-way real-time sync between Firestore patient records and Telegram Bot Concierge
+  useEffect(() => {
+    if (!authReady || !user || profileLoading || bookingsLoading) return undefined;
+
+    let active = true;
+
+    const applyBotUpdateToFirestore = async (botBooking: {
+      id: string;
+      preferredDateTime: string;
+      status: BookingRecord['status'];
+      treatmentName?: string;
+    }) => {
+      const local = bookings.find(item => item.id === botBooking.id);
+      if (!local) return;
+      if (
+        local.preferredDateTime === botBooking.preferredDateTime &&
+        local.status === botBooking.status
+      ) {
+        return;
+      }
+      if (!canEditBooking(local.createdAtMs, Date.now(), local.status)) return;
+
+      const bookingPath = `bookings/${local.id}`;
+      try {
+        if (botBooking.status === 'cancelled') {
+          await updateDoc(doc(db, 'bookings', local.id), {
+            status: 'cancelled',
+            updatedAt: serverTimestamp(),
+          });
+          if (active) {
+            setBotSyncNotice({
+              id: `${local.id}_${Date.now()}`,
+              title: 'Booking Cancelled via Telegram',
+              description: `${local.treatmentName} was cancelled from your Telegram chat.`,
+            });
+          }
+        } else {
+          await updateDoc(doc(db, 'bookings', local.id), {
+            preferredDateTime: botBooking.preferredDateTime,
+            updatedAt: serverTimestamp(),
+          });
+          if (active) {
+            setBotSyncNotice({
+              id: `${local.id}_${Date.now()}`,
+              title: 'Timing Updated via Telegram',
+              description: `${local.treatmentName} rescheduled to ${botBooking.preferredDateTime.replace('T', ' ')}.`,
+            });
+          }
+        }
+      } catch (error) {
+        handleFirestoreError(error, OperationType.UPDATE, bookingPath);
+      }
+    };
+
+    const syncWithConcierge = async () => {
+      try {
+        const idToken = await user.getIdToken();
+        const resp = await fetch('/api/telegram/sync', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${idToken}`,
+          },
+          body: JSON.stringify({
+            profile: profile
+              ? {
+                  fullName: profile.fullName,
+                  phoneCountryCode: profile.phoneCountryCode,
+                  phoneNumber: profile.phoneNumber,
+                  telegramMethod: profile.telegramMethod,
+                  telegramValue: profile.telegramValue,
+                  telegramChatId: profile.telegramChatId,
+                }
+              : null,
+            bookings: bookings.map(b => ({
+              id: b.id,
+              userId: b.userId,
+              fullName: b.fullName,
+              phoneCountryCode: b.phoneCountryCode,
+              phoneNumber: b.phoneNumber,
+              treatmentId: b.treatmentId,
+              treatmentName: b.treatmentName,
+              preferredDateTime: b.preferredDateTime,
+              telegramMethod: b.telegramMethod,
+              telegramValue: b.telegramValue,
+              status: b.status,
+              createdAtMs: b.createdAtMs,
+              updatedAtMs: b.updatedAtMs,
+            })),
+          }),
+        });
+        if (!resp.ok || !active) return;
+        const data = (await resp.json()) as {
+          linkedChatId?: string | null;
+          botUpdatedBookings?: Array<{
+            id: string;
+            preferredDateTime: string;
+            status: BookingRecord['status'];
+            treatmentName?: string;
+          }>;
+        };
+
+        if (data.linkedChatId) {
+          setLinkedTelegramChatId(data.linkedChatId);
+        }
+
+        if (
+          data.linkedChatId &&
+          profile &&
+          profile.telegramChatId !== data.linkedChatId
+        ) {
+          updateDoc(doc(db, 'users', user.uid), {
+            telegramChatId: data.linkedChatId,
+            updatedAt: serverTimestamp(),
+          }).catch(() => {});
+        }
+
+        for (const botBooking of data.botUpdatedBookings || []) {
+          await applyBotUpdateToFirestore(botBooking);
+        }
+      } catch {
+        // Ignore offline/network sync failures silently
+      }
+    };
+
+    const loadConciergeMessages = async () => {
+      setConciergeMessagesLoading(true);
+      try {
+        const idToken = await user.getIdToken();
+        const resp = await fetch('/api/telegram/chat', {
+          headers: { Authorization: `Bearer ${idToken}` },
+        });
+        if (!resp.ok || !active) return;
+        const data = (await resp.json()) as {
+          linkedChatId?: string | null;
+          messages?: ConciergeChatMessage[];
+        };
+        if (data.linkedChatId) {
+          setLinkedTelegramChatId(data.linkedChatId);
+        }
+        if (Array.isArray(data.messages)) {
+          setConciergeMessages(data.messages);
+        }
+      } catch {
+        // Ignore transient chat load errors
+      } finally {
+        if (active) setConciergeMessagesLoading(false);
+      }
+    };
+
+    void syncWithConcierge().then(() => loadConciergeMessages());
+
+    let source: EventSource | null = null;
+    if (typeof EventSource !== 'undefined') {
+      source = new EventSource('/api/telegram/events');
+      source.onmessage = event => {
+        try {
+          const parsed = JSON.parse(event.data) as {
+            type?: string;
+            userId?: string | null;
+            booking?: {
+              id: string;
+              preferredDateTime: string;
+              status: BookingRecord['status'];
+              treatmentName?: string;
+            };
+            message?: ConciergeChatMessage;
+          };
+          if (parsed.type === 'booking_updated' && parsed.booking) {
+            const belongsToUser =
+              parsed.userId === user.uid ||
+              bookings.some(b => b.id === parsed.booking?.id);
+            if (belongsToUser) {
+              void applyBotUpdateToFirestore(parsed.booking);
+            }
+          } else if (parsed.type === 'concierge_message' && parsed.message) {
+            const incomingMsg = parsed.message;
+            const belongsToUser =
+              parsed.userId === user.uid ||
+              (Boolean(linkedTelegramChatId) && incomingMsg.chatId === linkedTelegramChatId);
+            if (belongsToUser) {
+              setConciergeMessages(prev => {
+                if (prev.some(m => m.id === incomingMsg.id)) return prev;
+                return [...prev, incomingMsg].sort((a, b) => a.createdAtMs - b.createdAtMs);
+              });
+            }
+          }
+        } catch {
+          // Ignore malformed SSE heartbeats
+        }
+      };
+    }
+
+    return () => {
+      active = false;
+      source?.close();
+    };
+  }, [authReady, user, profile, profileLoading, bookings, bookingsLoading, linkedTelegramChatId]);
 
   /**
    * Authenticate with Google popup.
@@ -447,13 +675,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           bookingId,
+          userId: currentUser.uid,
           fullName: values.fullName.trim(),
+          phoneCountryCode: values.phoneCountryCode.trim(),
+          phoneNumber: values.phoneNumber.replace(/\D/g, ''),
           phone: `${values.phoneCountryCode.trim()} ${values.phoneNumber.replace(/\D/g, '')}`,
+          treatmentId: values.treatmentId,
           treatmentName,
           preferredDateTime: values.preferredDateTime,
           telegramMethod: effectiveTelegram.method,
           telegramValue: effectiveTelegram.value,
           chatId: profile?.telegramChatId || undefined,
+          createdAtMs: Date.now(),
         }),
       });
       if (resp.ok) {
@@ -576,6 +809,53 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   /**
+   * Send a direct concierge message from the website Profile to the server store & linked Telegram chat.
+   * Inputs: raw message string.
+   * Output: { sentToTelegram: boolean }.
+   */
+  const sendConciergeMessage = async (text: string): Promise<{ sentToTelegram: boolean }> => {
+    const currentUser = auth.currentUser;
+    if (!currentUser) {
+      throw new Error('Sign in to send a direct concierge message.');
+    }
+    const trimmed = text.trim();
+    if (!trimmed) {
+      throw new Error('Please enter a message before sending.');
+    }
+
+    const idToken = await currentUser.getIdToken();
+    const resp = await fetch('/api/telegram/chat', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${idToken}`,
+      },
+      body: JSON.stringify({ text: trimmed }),
+    });
+
+    const data = (await resp.json().catch(() => ({}))) as {
+      ok?: boolean;
+      error?: string;
+      linkedChatId?: string | null;
+      sentToTelegram?: boolean;
+      message?: ConciergeChatMessage;
+    };
+
+    if (!resp.ok || !data.ok || !data.message) {
+      throw new Error(data.error || 'Unable to send message right now.');
+    }
+
+    if (data.linkedChatId) {
+      setLinkedTelegramChatId(data.linkedChatId);
+    }
+    setConciergeMessages(prev => {
+      if (prev.some(m => m.id === data.message!.id)) return prev;
+      return [...prev, data.message!].sort((a, b) => a.createdAtMs - b.createdAtMs);
+    });
+    return { sentToTelegram: Boolean(data.sentToTelegram) };
+  };
+
+  /**
    * Sign out of Firebase Auth.
    */
   const signOutUser = async (): Promise<void> => {
@@ -595,6 +875,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         bookings,
         bookingsLoading,
         telegramStatus,
+        linkedTelegramChatId,
+        conciergeMessages,
+        conciergeMessagesLoading,
+        sendConciergeMessage,
+        botSyncNotice,
+        clearBotSyncNotice: () => setBotSyncNotice(null),
         signInWithGoogle,
         signInWithEmail,
         registerWithEmail,

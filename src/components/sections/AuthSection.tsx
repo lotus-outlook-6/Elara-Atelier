@@ -235,7 +235,7 @@ export const AuthSection: React.FC<AuthSectionProps> = ({
       aria-label="Patient Sign In and Account Creation"
       className="min-h-screen bg-[#FAF7F2] pt-28 pb-20 sm:pt-32"
     >
-      <div className="mx-auto max-w-6xl px-5 sm:px-8">
+      <div className="mx-auto max-w-6xl px-4 sm:px-8 2xl:max-w-[1360px]">
         <FadeContent trigger="mount" effect="fade" duration={0.55}>
           <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[#E2D9CE] pb-6">
             <div>
@@ -265,10 +265,10 @@ export const AuthSection: React.FC<AuthSectionProps> = ({
             </div>
           </div>
 
-          <div className="mt-10 grid grid-cols-1 items-start gap-8 lg:grid-cols-12">
+          <div className="mt-10 grid grid-cols-1 items-start gap-8 lg:grid-cols-12 2xl:gap-10">
             {/* Left Column: Clean Editorial Portal Card */}
             <div className="lg:col-span-7">
-              <div className="w-full rounded-[20px] border border-[#E2D9CE] bg-[#EFE9E0] p-6 text-[#1F1B18] sm:p-8">
+              <div className="w-full rounded-[20px] border border-[#E2D9CE] bg-[#EFE9E0] p-4 text-[#1F1B18] sm:p-8">
                 <div className="text-left">
                   {!needsGoogleProfile ? (
                     <div
@@ -590,7 +590,7 @@ export const AuthSection: React.FC<AuthSectionProps> = ({
                             >
                               Phone Number (with Country Code)
                             </label>
-                            <div className="flex gap-2.5">
+                            <div className="flex gap-2 sm:gap-2.5">
                               <GlideSelect
                                 options={countryCodeOptions}
                                 value={registerValues.phoneCountryCode}
@@ -604,7 +604,7 @@ export const AuthSection: React.FC<AuthSectionProps> = ({
                                 accentColor="#B68D5E"
                                 textColor="#1F1B18"
                                 ariaLabel="Phone country code"
-                                className="w-36 shrink-0 rounded-[10px] border border-[#E2D9CE]"
+                                className="w-28 shrink-0 rounded-[10px] border border-[#E2D9CE] sm:w-36"
                               />
                               <div className="relative flex-1">
                                 <Phone className="pointer-events-none absolute top-3.5 left-3.5 h-4 w-4 text-[#6E655F]" />

@@ -34,7 +34,15 @@ interface ToastState {
  * Inner application shell consuming AuthContext for header, auth portal, booking, and profile views.
  */
 function AtelierShell() {
-  const { user, userPhotoUrl, profile, bookings, signOutUser } = useAuth();
+  const {
+    user,
+    userPhotoUrl,
+    profile,
+    bookings,
+    botSyncNotice,
+    clearBotSyncNotice,
+    signOutUser,
+  } = useAuth();
 
   const [hydrating, setHydrating] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
@@ -55,6 +63,16 @@ function AtelierShell() {
     }, CLINIC_CONFIG.hydrationDurationMs);
     return () => window.clearTimeout(timer);
   }, [hydrating]);
+
+  useEffect(() => {
+    if (!botSyncNotice) return;
+    setToast({
+      open: true,
+      title: botSyncNotice.title,
+      description: botSyncNotice.description,
+    });
+    clearBotSyncNotice();
+  }, [botSyncNotice, clearBotSyncNotice]);
 
   /**
    * Show SwipeToast confirmation notification.

@@ -2,7 +2,8 @@
  * Pure pixel-level tooth-mask and enamel shade retouching utilities.
  * Keeps facial skin, lips, and pink gums 100% identical across Before and After,
  * applies subtle natural everyday yellowing only to teeth on Before, and cleanly scales
- * from stain removal (Day 1) to luminous porcelain white (Day 14) across upper & lower teeth.
+ * from stain removal (Day 1) to luminous porcelain white (Day 14) across upper & lower teeth,
+ * including shaded lower incisors and upper cervical enamel edges near the gumline.
  */
 
 /**
@@ -17,8 +18,31 @@ export function smoothstep(edge0: number, edge1: number, x: number): number {
 }
 
 /**
+ * Compute RGB hue angle in degrees [0, 360).
+ * Inputs: r, g, b channels (0-255).
+ * Output: hue in degrees [0, 360).
+ */
+function computeHueDegrees(r: number, g: number, b: number): number {
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const d = max - min;
+  if (d <= 0) return 0;
+
+  let h = 0;
+  if (max === r) {
+    h = 60 * (((g - b) / d) % 6);
+  } else if (max === g) {
+    h = 60 * ((b - r) / d + 2);
+  } else {
+    h = 60 * ((r - g) / d + 4);
+  }
+  return h < 0 ? h + 360 : h;
+}
+
+/**
  * Compute a soft [0, 1] mask weight indicating whether a pixel belongs to upper or lower teeth
- * inside the centered smile arch, excluding facial skin, lips, pink gums, and dark shadows.
+ * inside the centered smile arch, including warm/yellowed cervical edges and shaded lower teeth,
+ * while strictly excluding pink gums, lips, facial skin, and dark oral shadows.
  * Inputs: r, g, b (0-255), normX and normY normalized image coordinates (0-1).
  * Output: tooth mask weight in [0, 1].
  */
@@ -29,26 +53,43 @@ export function computeToothMaskWeight(
   normX: number,
   normY: number
 ): number {
-  const dx = (normX - 0.5) / 0.34;
-  const dy = (normY - 0.5) / 0.195;
+  const dx = (normX - 0.5) / 0.375;
+  const dy = (normY - 0.5) / 0.205;
   const distSq = dx * dx + dy * dy;
   if (distSq >= 1) return 0;
 
-  const spatial = smoothstep(1, 0.85, distSq);
+  const spatial = smoothstep(1, 0.8, distSq);
   const lum = 0.299 * r + 0.587 * g + 0.114 * b;
-  const lumWeight = smoothstep(68, 112, lum);
-  const blueWeight = smoothstep(50, 88, b);
+  const lumWeight = smoothstep(52, 95, lum);
+  const blueWeight = smoothstep(32, 70, b);
 
   const rgDiff = r - g;
+  const gbDiff = g - b;
   const redRatio = rgDiff / Math.max(r, 1);
-  const nonRedWeight = smoothstep(0.27, 0.185, redRatio);
-  const tissueExclusion = smoothstep(48, 32, rgDiff);
 
-  return spatial * lumWeight * blueWeight * nonRedWeight * tissueExclusion;
+  // Pink gums & lips have low hue (< 13 deg) and strong red excess over (g - b).
+  // Warm/yellowed tooth enamel has higher hue (15-55 deg) and strong yellow separation (g - b >= 14).
+  const hue = computeHueDegrees(r, g, b);
+  const pinkness = rgDiff - 1.35 * Math.max(0, gbDiff);
+
+  const neutralToothWeight =
+    smoothstep(0.245, 0.165, redRatio) * smoothstep(42, 28, rgDiff);
+
+  const warmEnamelWeight =
+    smoothstep(13, 18, hue) *
+    smoothstep(62, 52, hue) *
+    smoothstep(10, 18, gbDiff) *
+    smoothstep(34, 21, pinkness);
+
+  const enamelWeight =
+    Math.max(neutralToothWeight, warmEnamelWeight) * smoothstep(38, 22, pinkness);
+
+  return spatial * lumWeight * blueWeight * enamelWeight;
 }
 
 /**
- * Apply subtle, realistic everyday yellowing solely to masked tooth pixels for the Before state.
+ * Apply natural everyday yellowing solely to masked tooth pixels for the Before state
+ * starting from an already clean white smile photograph.
  * Inputs: r, g, b (0-255), toothWeight in [0, 1].
  * Output: [r, g, b] integer tuple (0-255).
  */
@@ -60,9 +101,9 @@ export function applyBeforeToothStain(
 ): [number, number, number] {
   if (toothWeight <= 0.001) return [r, g, b];
 
-  const stainedR = r * 0.985;
-  const stainedG = g * 0.955;
-  const stainedB = b * 0.855;
+  const stainedR = r * 0.965;
+  const stainedG = g * 0.915;
+  const stainedB = b * 0.775;
 
   const outR = Math.round(Math.max(0, Math.min(255, r + (stainedR - r) * toothWeight)));
   const outG = Math.round(Math.max(0, Math.min(255, g + (stainedG - g) * toothWeight)));
@@ -71,9 +112,10 @@ export function applyBeforeToothStain(
 }
 
 /**
- * Apply progressive teeth-only cleaning and whitening for the After state.
- * whiteningLevel = 0 (Day 1 / 1 Visit): cleanly removes yellow stain without over-bleaching.
- * whiteningLevel = 1 (Day 14 / 2 Visits): bright porcelain white while preserving enamel shading.
+ * Progressively transition a clean white teeth image based on Visit Time & Days slider:
+ * whiteningLevel = 1 (Day 14 / 2 Visits): 100% original untouched clean teeth image.
+ * whiteningLevel -> 0 (Day 1 / 1 Visit): gradually adds subtle warm yellow-ivory tint
+ * as slider decreases, remaining noticeably cleaner than the Before state.
  * Inputs: r, g, b (0-255), toothWeight in [0, 1], whiteningLevel in [0, 1].
  * Output: [r, g, b] integer tuple (0-255).
  */
@@ -87,18 +129,17 @@ export function applyAfterToothWhitening(
   if (toothWeight <= 0.001) return [r, g, b];
 
   const w = Math.max(0, Math.min(1, whiteningLevel));
-  const lum = 0.299 * r + 0.587 * g + 0.114 * b;
-  const liftFactor = 0.04 + w * 0.42;
-  const targetLum = lum + (255 - lum) * liftFactor;
-  const neutralize = 0.22 + w * 0.68;
+  if (w >= 0.999) return [r, g, b];
 
-  const cleanR = r * (1 - neutralize) + targetLum * neutralize;
-  const cleanG = g * (1 - neutralize) + targetLum * neutralize;
-  const cleanB = b * (1 - neutralize) + targetLum * neutralize;
+  // As slider decreases from Day 14 (w=1) down to Day 1 (w=0), gradually warm/yellow teeth
+  const stainAmount = 1 - w;
+  const targetR = r * (1 - 0.02 * stainAmount);
+  const targetG = g * (1 - 0.055 * stainAmount);
+  const targetB = b * (1 - 0.155 * stainAmount);
 
-  const outR = Math.round(Math.max(0, Math.min(255, r + (cleanR - r) * toothWeight)));
-  const outG = Math.round(Math.max(0, Math.min(255, g + (cleanG - g) * toothWeight)));
-  const outB = Math.round(Math.max(0, Math.min(255, b + (cleanB - b) * toothWeight)));
+  const outR = Math.round(Math.max(0, Math.min(255, r + (targetR - r) * toothWeight)));
+  const outG = Math.round(Math.max(0, Math.min(255, g + (targetG - g) * toothWeight)));
+  const outB = Math.round(Math.max(0, Math.min(255, b + (targetB - b) * toothWeight)));
   return [outR, outG, outB];
 }
 

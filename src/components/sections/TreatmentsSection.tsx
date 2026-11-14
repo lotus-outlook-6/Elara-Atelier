@@ -4,7 +4,7 @@
  * featuring bespoke editorial photography that sync into the booking concierge form.
  */
 
-import React, { useMemo, useState, type CSSProperties } from 'react';
+import React, { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { ArrowUpRight, Check } from 'lucide-react';
 import {
   TREATMENTS,
@@ -23,6 +23,24 @@ export interface TreatmentsSectionProps {
   onSelectTreatment: (treatmentId: string) => void;
 }
 
+interface BentoViewportConfig {
+  columns: number;
+  rowHeight: number;
+}
+
+/**
+ * Compute MagicBento column count and row height from viewport width so mobile stacks cleanly,
+ * tablet keeps spacious 2-column rows, and large monitors scale gracefully.
+ * Inputs: window innerWidth in pixels.
+ * Output: BentoViewportConfig object.
+ */
+function getBentoViewportConfig(viewportWidth: number): BentoViewportConfig {
+  if (viewportWidth < 640) return { columns: 1, rowHeight: 320 };
+  if (viewportWidth < 1024) return { columns: 2, rowHeight: 340 };
+  if (viewportWidth < 1536) return { columns: 3, rowHeight: 340 };
+  return { columns: 3, rowHeight: 376 };
+}
+
 /**
  * Filterable clinical treatment menu rendered inside MagicBento and GlareHover
  * with editorial photography for every protocol.
@@ -32,6 +50,19 @@ export const TreatmentsSection: React.FC<TreatmentsSectionProps> = ({
   onSelectTreatment,
 }) => {
   const [activeCategory, setActiveCategory] = useState<TreatmentCategory>('Facial Aesthetics');
+  const [gridConfig, setGridConfig] = useState<BentoViewportConfig>(() =>
+    typeof window !== 'undefined'
+      ? getBentoViewportConfig(window.innerWidth)
+      : getBentoViewportConfig(1280)
+  );
+
+  useEffect(() => {
+    const handleResize = () => {
+      setGridConfig(getBentoViewportConfig(window.innerWidth));
+    };
+    window.addEventListener('resize', handleResize, { passive: true });
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   const filteredTreatments = useMemo(
     () => filterTreatmentsByCategory(activeCategory, TREATMENTS),
@@ -186,10 +217,10 @@ export const TreatmentsSection: React.FC<TreatmentsSectionProps> = ({
   return (
     <section
       id="treatments"
-      className="border-b border-[#E2D9CE] bg-[#FAF7F2] py-16 sm:py-20 md:py-24"
+      className="border-b border-[#E2D9CE] bg-[#FAF7F2] py-16 sm:py-20 md:py-24 2xl:py-28"
     >
-      <div className="mx-auto max-w-7xl px-5 sm:px-8">
-        <div className="flex flex-col justify-between gap-8 lg:flex-row lg:items-end">
+      <div className="mx-auto max-w-7xl px-4 sm:px-8 2xl:max-w-[1440px]">
+        <div className="flex flex-col justify-between gap-6 lg:flex-row lg:items-end lg:gap-8">
           <div className="max-w-2xl">
             <p className="text-[11px] font-semibold tracking-[0.22em] text-[#B68D5E] uppercase">
               In-Clinic Services · Book by Appointment
@@ -213,11 +244,11 @@ export const TreatmentsSection: React.FC<TreatmentsSectionProps> = ({
             </p>
           </div>
 
-          {/* Interactive Category Filter Tabs */}
+          {/* Interactive Category Filter Tabs (Single scrollable row on small phones) */}
           <div
             role="tablist"
             aria-label="Treatment categories"
-            className="flex shrink-0 flex-wrap items-center gap-2 border-b border-[#E2D9CE] pb-2 sm:flex-nowrap"
+            className="flex w-full items-center gap-1.5 overflow-x-auto border-b border-[#E2D9CE] pb-2 lg:w-auto lg:shrink-0 lg:overflow-visible"
           >
             {TREATMENT_CATEGORIES.map(category => {
               const active = category === activeCategory;
@@ -228,7 +259,7 @@ export const TreatmentsSection: React.FC<TreatmentsSectionProps> = ({
                   role="tab"
                   aria-selected={active}
                   onClick={() => setActiveCategory(category)}
-                  className={`cursor-pointer rounded-lg px-4 py-2 text-xs font-semibold tracking-[0.12em] whitespace-nowrap uppercase transition-colors duration-200 ${
+                  className={`shrink-0 cursor-pointer rounded-lg px-3.5 py-2 text-[11px] font-semibold tracking-[0.12em] whitespace-nowrap uppercase transition-colors duration-200 sm:px-4 sm:text-xs ${
                     active
                       ? 'bg-[#1F1B18] text-[#FAF7F2]'
                       : 'bg-transparent text-[#6E655F] hover:bg-[#EFE9E0] hover:text-[#1F1B18]'
@@ -241,12 +272,12 @@ export const TreatmentsSection: React.FC<TreatmentsSectionProps> = ({
           </div>
         </div>
 
-        <div className="mt-10">
+        <div className="mt-8 sm:mt-10">
           <MagicBento
             key={activeCategory}
             items={bentoItems}
-            columns={3}
-            rowHeight={340}
+            columns={gridConfig.columns}
+            rowHeight={gridConfig.rowHeight}
             gap={16}
             radius={16}
             theme="light"

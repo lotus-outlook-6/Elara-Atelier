@@ -21,8 +21,8 @@ export const TrustMetricsSection: React.FC = () => {
       className="border-b border-[#E2D9CE] bg-[#FAF7F2] py-14 sm:py-16 md:py-20"
       aria-label="Clinical trust metrics"
     >
-      <div className="mx-auto max-w-7xl px-5 sm:px-8">
-        <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
+      <div className="mx-auto max-w-7xl px-4 sm:px-8 2xl:max-w-[1440px]">
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-3 2xl:gap-8">
           {TRUST_METRICS.map((metric, idx) => {
             const media = vignettes[idx % vignettes.length];
             return (
@@ -33,7 +33,7 @@ export const TrustMetricsSection: React.FC = () => {
                 intensity={0.22}
                 borderGlow={0.55}
                 spotlightSize={260}
-                className="rounded-2xl p-6 sm:p-7"
+                className="rounded-2xl p-5 sm:p-7 2xl:p-8"
                 style={
                   {
                     '--spotlight-card-surface': '#EFE9E0',
@@ -44,7 +44,7 @@ export const TrustMetricsSection: React.FC = () => {
               >
                 <div className="relative z-10 flex h-full flex-col justify-between">
                   <div>
-                    <div className="mb-5 h-32 w-full overflow-hidden rounded-xl border border-[#E2D9CE] bg-[#E5DACB]">
+                    <div className="mb-5 h-32 w-full overflow-hidden rounded-xl border border-[#E2D9CE] bg-[#E5DACB] sm:h-36 2xl:h-40">
                       <img
                         src={media.src}
                         alt={media.alt}

@@ -74,12 +74,52 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
   const [status, setStatus] = useState<'idle' | 'submitting' | 'confirmed'>('idle');
   const [confirmedDetails, setConfirmedDetails] = useState<BookingFormValues | null>(null);
   const [confirmedMeta, setConfirmedMeta] = useState<{
+    bookingId?: string;
     savedToProfile: boolean;
     telegramDeepLink: string;
     serverDispatched: boolean;
+    status?: 'requested' | 'confirmed' | 'cancelled';
   } | null>(null);
   const [savingGuestDraft, setSavingGuestDraft] = useState(false);
   const [saveGuestError, setSaveGuestError] = useState<string | null>(null);
+
+  // Listen for live Telegram bot reschedules on guest-confirmed bookings
+  useEffect(() => {
+    const activeBookingId = confirmedMeta?.bookingId;
+    if (status !== 'confirmed' || !activeBookingId || user || typeof EventSource === 'undefined') {
+      return undefined;
+    }
+    const source = new EventSource('/api/telegram/events');
+    source.onmessage = event => {
+      try {
+        const parsed = JSON.parse(event.data) as {
+          type?: string;
+          booking?: {
+            id?: string;
+            preferredDateTime?: string;
+            status?: 'requested' | 'confirmed' | 'cancelled';
+          };
+        };
+        if (parsed.type === 'booking_updated' && parsed.booking?.id === activeBookingId) {
+          if (parsed.booking.preferredDateTime) {
+            setConfirmedDetails(prev =>
+              prev ? { ...prev, preferredDateTime: parsed.booking!.preferredDateTime! } : prev
+            );
+          }
+          if (parsed.booking.status) {
+            setConfirmedMeta(prev =>
+              prev ? { ...prev, status: parsed.booking!.status } : prev
+            );
+          }
+        }
+      } catch {
+        // Ignore malformed SSE heartbeats
+      }
+    };
+    return () => {
+      source.close();
+    };
+  }, [status, confirmedMeta?.bookingId, user]);
   const [sliderWidth, setSliderWidth] = useState<number>(320);
   const sliderContainerRef = useRef<HTMLDivElement>(null);
 
@@ -116,7 +156,7 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
     if (!el) return undefined;
 
     const updateWidth = () => {
-      const next = Math.max(244, Math.min(640, Math.floor(el.clientWidth)));
+      const next = Math.max(220, Math.min(720, Math.floor(el.clientWidth)));
       setSliderWidth(next);
     };
     updateWidth();
@@ -198,10 +238,13 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
     );
     let serverDispatched = false;
 
+    let confirmedBookingId = '';
+
     if (user) {
       try {
         const result = await createBookingRecord(snapshot);
         savedToProfile = true;
+        confirmedBookingId = result.bookingId;
         telegramDeepLink = result.telegramDeepLink;
         serverDispatched = result.serverDispatched;
       } catch (err) {
@@ -210,6 +253,7 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
         throw err;
       }
     } else {
+      confirmedBookingId = `guest_${Date.now()}`;
       await new Promise<void>(resolve => {
         window.setTimeout(() => {
           resolve();
@@ -220,13 +264,17 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            bookingId: `guest_${Date.now()}`,
+            bookingId: confirmedBookingId,
             fullName: snapshot.fullName.trim(),
+            phoneCountryCode: snapshot.phoneCountryCode.trim(),
+            phoneNumber: snapshot.phoneNumber.replace(/\D/g, ''),
             phone: `${snapshot.phoneCountryCode} ${snapshot.phoneNumber}`,
+            treatmentId: snapshot.treatmentId,
             treatmentName: chosenTreatment?.name || 'Private Consultation',
             preferredDateTime: snapshot.preferredDateTime,
             telegramMethod: snapshot.telegramMethod,
             telegramValue: snapshot.telegramValue,
+            createdAtMs: Date.now(),
           }),
         });
         if (resp.ok) {
@@ -240,7 +288,12 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
     }
 
     setConfirmedDetails(snapshot);
-    setConfirmedMeta({ savedToProfile, telegramDeepLink, serverDispatched });
+    setConfirmedMeta({
+      bookingId: confirmedBookingId,
+      savedToProfile,
+      telegramDeepLink,
+      serverDispatched,
+    });
     setStatus('confirmed');
     onBookingConfirmed({
       patientName: snapshot.fullName.trim(),
@@ -279,8 +332,8 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
     : '';
 
   return (
-    <section id="booking" className="bg-[#FAF7F2] py-16 sm:py-20 md:py-24">
-      <div className="mx-auto max-w-7xl px-5 sm:px-8">
+    <section id="booking" className="bg-[#FAF7F2] py-16 sm:py-20 md:py-24 2xl:py-28">
+      <div className="mx-auto max-w-7xl px-4 sm:px-8 2xl:max-w-[1440px]">
         <div className="flex flex-col justify-between gap-6 lg:flex-row lg:items-end">
           <div className="max-w-2xl">
             <p className="text-[11px] font-semibold tracking-[0.22em] text-[#B68D5E] uppercase">
@@ -301,10 +354,10 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
           </div>
         </div>
 
-        <div className="mt-10 grid grid-cols-1 items-stretch gap-8 lg:grid-cols-12">
+        <div className="mt-10 grid grid-cols-1 items-stretch gap-8 lg:grid-cols-12 2xl:gap-10">
           {/* Left Column: Editorial Booking Form Card */}
           <div className="lg:col-span-7">
-            <div className="h-full w-full rounded-[20px] border border-[#E2D9CE] bg-[#EFE9E0] p-6 text-[#1F1B18] sm:p-8 lg:p-10">
+            <div className="h-full w-full rounded-[20px] border border-[#E2D9CE] bg-[#EFE9E0] p-4 text-[#1F1B18] sm:p-8 lg:p-10">
               <div className="flex h-full flex-col justify-between text-left">
                 <div>
                   <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[#E2D9CE] pb-4 sm:flex-nowrap">
@@ -367,12 +420,16 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
                           />
                           <div>
                             <h4 className="font-serif text-2xl font-semibold text-[#1F1B18]">
-                              Appointment Request Received
+                              {confirmedMeta?.status === 'cancelled'
+                                ? 'Appointment Cancelled'
+                                : 'Appointment Request Received'}
                             </h4>
                             <p className="mt-1 text-sm text-[#6E655F]">
-                              {confirmedMeta?.savedToProfile
-                                ? 'Saved to your Profile & Calendar. You may edit or cancel this visit for the next 4 hours.'
-                                : 'Your concierge request is ready. Connect with our Telegram bot or WhatsApp below.'}
+                              {confirmedMeta?.status === 'cancelled'
+                                ? 'This visit was cancelled from your Telegram concierge chat.'
+                                : confirmedMeta?.savedToProfile
+                                  ? 'Saved to your Profile & Calendar. You may edit or cancel this visit for the next 4 hours.'
+                                  : 'Your concierge request is ready. Connect with our Telegram bot or WhatsApp below.'}
                             </p>
                           </div>
                         </div>
@@ -570,7 +627,7 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
                         >
                           Phone Number (with Country Code)
                         </label>
-                        <div className="flex gap-2.5">
+                        <div className="flex gap-2 sm:gap-2.5">
                           <GlideSelect
                             options={countryCodeOptions}
                             value={values.phoneCountryCode}
@@ -584,7 +641,7 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
                             accentColor="#B68D5E"
                             textColor="#1F1B18"
                             ariaLabel="Booking phone country code"
-                            className="w-36 shrink-0 rounded-[10px] border border-[#E2D9CE]"
+                            className="w-28 shrink-0 rounded-[10px] border border-[#E2D9CE] sm:w-36"
                           />
                           <input
                             id="booking-phone"
@@ -766,14 +823,14 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
 
           {/* Right Column: Sanctuary Photography, Map & Hours Card */}
           <aside className="flex lg:col-span-5">
-            <div className="flex w-full flex-col justify-between gap-5 rounded-[20px] border border-[#E2D9CE] bg-[#EFE9E0] p-6 sm:p-8">
+            <div className="flex w-full flex-col justify-between gap-5 rounded-[20px] border border-[#E2D9CE] bg-[#EFE9E0] p-4 sm:p-8">
               <div className="space-y-5">
                 <div className="overflow-hidden rounded-xl border border-[#E2D9CE] bg-[#E5DACB]">
                   <img
                     src={CONCIERGE_SUITE_MEDIA.src}
                     alt={CONCIERGE_SUITE_MEDIA.alt}
                     referrerPolicy="no-referrer"
-                    className="block h-44 w-full object-cover sm:h-48"
+                    className="block h-44 w-full object-cover sm:h-48 2xl:h-56"
                   />
                 </div>
 
@@ -782,7 +839,7 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
                     src={CLINIC_CONFIG.mapsEmbedUrl}
                     title="Elara Atelier Beverly Hills Clinic Location"
                     referrerPolicy="no-referrer-when-downgrade"
-                    className="block h-44 w-full border-0 sm:h-48"
+                    className="block h-44 w-full border-0 sm:h-48 2xl:h-56"
                   />
                 </div>
 

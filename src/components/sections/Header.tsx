@@ -76,20 +76,20 @@ export const Header: React.FC<HeaderProps> = ({
           : 'border-b border-transparent bg-transparent'
       }`}
     >
-      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-4 px-4 sm:px-8 md:h-20">
+      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-2 px-3.5 sm:gap-4 sm:px-8 md:h-20 2xl:max-w-[1440px]">
         {/* Zone 1: Brand Wordmark */}
         <a
           href="#top"
           onClick={() => {
             if (activeView !== 'studio') onReturnStudio();
           }}
-          className="font-serif text-base font-semibold tracking-[0.18em] whitespace-nowrap shrink-0 text-[#1F1B18] no-underline sm:text-xl"
+          className="font-serif text-sm font-semibold tracking-[0.12em] whitespace-nowrap shrink-0 text-[#1F1B18] no-underline sm:text-xl sm:tracking-[0.18em]"
         >
           {CLINIC_CONFIG.brandName}
         </a>
 
         {/* Zone 2: Desktop Anchor Navigation */}
-        <nav className="hidden items-center gap-7 lg:flex" aria-label="Primary navigation">
+        <nav className="hidden items-center gap-7 lg:flex 2xl:gap-9" aria-label="Primary navigation">
           {NAV_LINKS.map(link => (
             <a
               key={link.href}
@@ -103,7 +103,7 @@ export const Header: React.FC<HeaderProps> = ({
         </nav>
 
         {/* Zone 3: Account Controls + Hold-Only Book Visit with Day & Time Highlight */}
-        <div className="flex items-center gap-2.5 sm:gap-3 shrink-0">
+        <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
           {userDisplayName ? (
             <div className="hidden items-center gap-2 sm:flex">
               <button
@@ -145,7 +145,7 @@ export const Header: React.FC<HeaderProps> = ({
           )}
 
           {/* Highlighted Book Visit + Operating Day & Time */}
-          <div className="flex items-center gap-2.5 rounded-xl border border-[#E2D9CE] bg-[#EFE9E0] p-1 sm:pl-3">
+          <div className="flex items-center gap-2 rounded-xl border border-[#E2D9CE] bg-[#EFE9E0] p-0.5 sm:gap-2.5 sm:p-1 sm:pl-3">
             <span className="hidden text-[11px] font-medium tracking-[0.12em] whitespace-nowrap text-[#1F1B18] uppercase xl:inline">
               {CLINIC_CONFIG.hoursShort}
             </span>
@@ -160,7 +160,7 @@ export const Header: React.FC<HeaderProps> = ({
               glow={false}
               doneLabel="Opening..."
               onHold={onBookClick}
-              className="text-xs tracking-[0.1em] uppercase"
+              className="text-[11px] tracking-[0.08em] uppercase sm:text-xs sm:tracking-[0.1em]"
             >
               Book Visit
             </HoldButton>

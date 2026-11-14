@@ -32,13 +32,22 @@ interface BounceDimensions {
  * Output: BounceDimensions object preventing horizontal overflow on narrow mobile screens.
  */
 function getResponsiveBounceDimensions(viewportWidth: number): BounceDimensions {
+  if (viewportWidth < 400) {
+    return {
+      containerWidth: 292,
+      containerHeight: 186,
+      cardSize: 108,
+      spread: 44,
+      pushDistance: 48,
+    };
+  }
   if (viewportWidth < 480) {
     return {
-      containerWidth: 320,
-      containerHeight: 200,
-      cardSize: 120,
-      spread: 50,
-      pushDistance: 56,
+      containerWidth: 336,
+      containerHeight: 210,
+      cardSize: 124,
+      spread: 52,
+      pushDistance: 58,
     };
   }
   if (viewportWidth < 1024) {
@@ -50,12 +59,21 @@ function getResponsiveBounceDimensions(viewportWidth: number): BounceDimensions 
       pushDistance: 78,
     };
   }
+  if (viewportWidth < 1536) {
+    return {
+      containerWidth: 480,
+      containerHeight: 300,
+      cardSize: 174,
+      spread: 74,
+      pushDistance: 92,
+    };
+  }
   return {
-    containerWidth: 480,
-    containerHeight: 300,
-    cardSize: 174,
-    spread: 74,
-    pushDistance: 92,
+    containerWidth: 560,
+    containerHeight: 340,
+    cardSize: 202,
+    spread: 88,
+    pushDistance: 108,
   };
 }
 
@@ -90,7 +108,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({ onReserveClick }) => {
   return (
     <section
       id="top"
-      className="relative overflow-hidden border-b border-[#E2D9CE] bg-[#FAF7F2] pt-28 pb-16 sm:pt-32 sm:pb-20 lg:pt-36 lg:pb-24"
+      className="relative overflow-hidden border-b border-[#E2D9CE] bg-[#FAF7F2] pt-24 pb-14 sm:pt-32 sm:pb-20 lg:pt-36 lg:pb-24 2xl:pt-40 2xl:pb-28"
     >
       {/* Daylight Warm WebGL Atmosphere */}
       <div className="pointer-events-none absolute inset-0" aria-hidden="true">
@@ -110,7 +128,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({ onReserveClick }) => {
         />
       </div>
 
-      <div className="relative z-10 mx-auto grid max-w-7xl grid-cols-1 items-center gap-12 px-5 sm:px-8 lg:grid-cols-12 lg:gap-8">
+      <div className="relative z-10 mx-auto grid max-w-7xl grid-cols-1 items-center gap-10 px-4 sm:gap-12 sm:px-8 lg:grid-cols-12 lg:gap-8 2xl:max-w-[1440px] 2xl:gap-12">
         {/* Left Editorial Column */}
         <div className="lg:col-span-7">
           <p className="mb-5 text-[11px] font-medium tracking-[0.22em] text-[#6E655F] uppercase sm:text-xs">
@@ -147,7 +165,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({ onReserveClick }) => {
           />
 
           {/* Highlighted Hold-Only Reserve Action + Studio Operating Day & Time */}
-          <div className="mt-8 inline-flex flex-wrap items-center gap-4 rounded-2xl border border-[#E2D9CE] bg-[#EFE9E0] p-2.5 pr-5">
+          <div className="mt-8 flex w-full max-w-full flex-wrap items-center gap-3 rounded-2xl border border-[#E2D9CE] bg-[#EFE9E0] p-2.5 sm:inline-flex sm:w-auto sm:gap-4 sm:pr-5">
             <HoldButton
               size="lg"
               radius={10}
@@ -160,7 +178,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({ onReserveClick }) => {
               doneLabel="Opening Concierge"
               icon={<ArrowDownRight className="h-4 w-4" />}
               onHold={onReserveClick}
-              className="text-sm font-medium tracking-[0.04em]"
+              className="w-full text-xs font-medium tracking-[0.04em] sm:w-auto sm:text-sm"
             >
               Hold to Reserve Consultation
             </HoldButton>

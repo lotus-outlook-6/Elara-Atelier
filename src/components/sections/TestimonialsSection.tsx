@@ -18,9 +18,9 @@ export const TestimonialsSection: React.FC = () => {
   return (
     <section
       id="testimonials"
-      className="border-b border-[#E2D9CE] bg-[#FAF7F2] py-16 sm:py-20 md:py-24"
+      className="border-b border-[#E2D9CE] bg-[#FAF7F2] py-16 sm:py-20 md:py-24 2xl:py-28"
     >
-      <div className="mx-auto max-w-7xl px-5 sm:px-8">
+      <div className="mx-auto max-w-7xl px-4 sm:px-8 2xl:max-w-[1440px]">
         <div className="max-w-2xl">
           <p className="text-[11px] font-semibold tracking-[0.22em] text-[#B68D5E] uppercase">
             Patient Voices
@@ -31,7 +31,7 @@ export const TestimonialsSection: React.FC = () => {
         </div>
 
         <FadeContent trigger="scroll" effect="fade" duration={0.85} threshold={0.12}>
-          <div className="mt-10 grid grid-cols-1 gap-6 md:grid-cols-3">
+          <div className="mt-10 grid grid-cols-1 gap-6 md:grid-cols-3 2xl:gap-8">
             {TESTIMONIALS.map(item => {
               const media = TESTIMONIAL_MEDIA[item.id];
               return (
@@ -49,10 +49,10 @@ export const TestimonialsSection: React.FC = () => {
                   transitionDuration={550}
                   className="!block h-full w-full"
                 >
-                  <article className="flex h-full w-full flex-col justify-between p-6 text-left sm:p-7">
+                  <article className="flex h-full w-full flex-col justify-between p-5 text-left sm:p-7 2xl:p-8">
                     <div>
                       {media ? (
-                        <div className="mb-5 h-40 w-full overflow-hidden rounded-xl border border-[#E2D9CE] bg-[#E5DACB]">
+                        <div className="mb-5 h-40 w-full overflow-hidden rounded-xl border border-[#E2D9CE] bg-[#E5DACB] 2xl:h-48">
                           <img
                             src={media.src}
                             alt={media.alt}

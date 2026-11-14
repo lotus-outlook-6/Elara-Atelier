@@ -41,6 +41,7 @@ import AtelierDatePicker from '../reactbits/AtelierDatePicker';
 import GlideSelect, { type GlideSelectOption } from '../reactbits/GlideSelect';
 import LatticeLoader from '../reactbits/LatticeLoader';
 import PatientAvatar from '../ui/PatientAvatar';
+import TelegramConciergeChat from '../ui/TelegramConciergeChat';
 
 export interface ProfileSectionProps {
   onBackToStudio: () => void;
@@ -67,6 +68,10 @@ export const ProfileSection: React.FC<ProfileSectionProps> = ({
     bookings,
     bookingsLoading,
     telegramStatus,
+    linkedTelegramChatId,
+    conciergeMessages,
+    conciergeMessagesLoading,
+    sendConciergeMessage,
     saveUserProfile,
     editBookingRecord,
     cancelBookingRecord,
@@ -330,7 +335,7 @@ export const ProfileSection: React.FC<ProfileSectionProps> = ({
       aria-label="Patient Profile and Schedule Calendar"
       className="min-h-screen bg-[#FAF7F2] pt-28 pb-20 sm:pt-32"
     >
-      <div className="mx-auto max-w-7xl px-5 sm:px-8">
+      <div className="mx-auto max-w-7xl px-4 sm:px-8 2xl:max-w-[1440px]">
         {/* Top Action & Patient Header */}
         <div className="flex flex-col justify-between gap-6 border-b border-[#E2D9CE] pb-8 lg:flex-row lg:items-end">
           <div>
@@ -383,11 +388,11 @@ export const ProfileSection: React.FC<ProfileSectionProps> = ({
           </div>
         </div>
 
-        <div className="mt-10 grid grid-cols-1 gap-8 lg:grid-cols-12">
+        <div className="mt-10 grid grid-cols-1 gap-8 lg:grid-cols-12 2xl:gap-10">
           {/* Left Column: Patient Details + Telegram Bot Card */}
           <div className="space-y-6 lg:col-span-5">
             {/* Patient Contact & Identity Card */}
-            <div className="rounded-2xl border border-[#E2D9CE] bg-[#EFE9E0] p-6">
+            <div className="rounded-2xl border border-[#E2D9CE] bg-[#EFE9E0] p-4 sm:p-6">
               <div className="flex items-center justify-between gap-3 border-b border-[#E2D9CE] pb-4">
                 <div className="flex items-center gap-2.5">
                   <PatientAvatar
@@ -608,7 +613,7 @@ export const ProfileSection: React.FC<ProfileSectionProps> = ({
             </div>
 
             {/* Telegram Bot Connection & Setup Plan */}
-            <div className="rounded-2xl border border-[#E2D9CE] bg-[#EFE9E0] p-6">
+            <div className="rounded-2xl border border-[#E2D9CE] bg-[#EFE9E0] p-4 sm:p-6">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="text-[11px] font-semibold tracking-[0.18em] text-[#B68D5E] uppercase">
@@ -624,9 +629,8 @@ export const ProfileSection: React.FC<ProfileSectionProps> = ({
               </div>
 
               <p className="mt-2.5 text-xs leading-relaxed text-[#6E655F]">
-                Telegram bots require a one-time <code className="text-[#1F1B18]">/start</code>{' '}
-                message from your account before they can send consultation updates directly to your
-                chat.
+                Open our Telegram concierge to view your private appointments, change timings within
+                the 4-hour window using the bottom menu buttons, or chat directly with our studio desk.
               </p>
 
               <div className="mt-4 flex flex-wrap gap-2.5">
@@ -650,42 +654,43 @@ export const ProfileSection: React.FC<ProfileSectionProps> = ({
                   className="inline-flex h-10 cursor-pointer items-center gap-1.5 rounded-lg border border-[#E2D9CE] bg-[#FAF7F2] px-3.5 text-xs font-semibold tracking-[0.1em] text-[#1F1B18] uppercase transition-colors hover:border-[#B68D5E]"
                 >
                   <Info className="h-3.5 w-3.5 text-[#B68D5E]" />
-                  {showBotPlan ? 'Hide Bot Setup Plan' : 'Bot Username Setup Plan'}
+                  {showBotPlan ? 'Hide Setup Details' : 'Concierge Details'}
                 </button>
               </div>
 
               {showBotPlan ? (
                 <ol className="mt-4 space-y-2 border-t border-[#E2D9CE] pt-4 text-xs leading-relaxed text-[#6E655F]">
                   <li>
-                    <strong className="text-[#1F1B18]">1. Create @username in @BotFather:</strong>{' '}
-                    Message <code className="text-[#1F1B18]">@BotFather</code> on Telegram, send{' '}
-                    <code className="text-[#1F1B18]">/newbot</code>, set display name{' '}
-                    <em>Elara Atelier Concierge</em>, and choose a username ending in{' '}
-                    <code className="text-[#1F1B18]">Bot</code> (e.g.{' '}
-                    <code className="text-[#1F1B18]">ElaraAtelierBot</code>).
+                    <strong className="text-[#1F1B18]">1. Studio Menu &amp; Instant Actions:</strong>{' '}
+                    Opening @{telegramStatus.botUsername} displays quick bottom menu buttons for
+                    appointments, timing updates, treatments, clinic hours, and direct messaging.
                   </li>
                   <li>
-                    <strong className="text-[#1F1B18]">2. Configure Secrets:</strong> Add{' '}
-                    <code className="text-[#1F1B18]">TELEGRAM_BOT_TOKEN</code> and{' '}
-                    <code className="text-[#1F1B18]">TELEGRAM_BOT_USERNAME</code> to your
-                    environment variables.
+                    <strong className="text-[#1F1B18]">2. Real-Time Calendar Sync:</strong>{' '}
+                    Any timing or cancellation change made in Telegram updates your Profile schedule
+                    and calendar automatically within the 4-hour window.
                   </li>
                   <li>
-                    <strong className="text-[#1F1B18]">3. Link Webhook &amp; /start:</strong> Point
-                    Telegram <code className="text-[#1F1B18]">setWebhook</code> to{' '}
-                    <code className="text-[#1F1B18]">/api/telegram/webhook</code> so patients tapping{' '}
-                    <strong>Connect Telegram Bot</strong> bind their <code className="text-[#1F1B18]">chat_id</code>{' '}
-                    automatically for direct consultation reminders.
+                    <strong className="text-[#1F1B18]">3. Direct Concierge Chat:</strong>{' '}
+                    Messages sent here or inside Telegram appear in the thread below in real time.
                   </li>
                 </ol>
               ) : null}
+
+              <TelegramConciergeChat
+                botUsername={telegramStatus.botUsername}
+                linkedChatId={linkedTelegramChatId}
+                messages={conciergeMessages}
+                loading={conciergeMessagesLoading}
+                onSendMessage={sendConciergeMessage}
+              />
             </div>
           </div>
 
           {/* Right Column: Interactive Monthly Calendar + 4-Hour Editable Bookings List */}
           <div className="space-y-6 lg:col-span-7">
             {/* Interactive Monthly Calendar */}
-            <div className="rounded-2xl border border-[#E2D9CE] bg-[#EFE9E0] p-6">
+            <div className="rounded-2xl border border-[#E2D9CE] bg-[#EFE9E0] p-4 sm:p-6">
               <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[#E2D9CE] pb-4">
                 <div>
                   <p className="text-[11px] font-semibold tracking-[0.18em] text-[#B68D5E] uppercase">
@@ -778,7 +783,7 @@ export const ProfileSection: React.FC<ProfileSectionProps> = ({
             </div>
 
             {/* Bookings List with 4-Hour Edit Window */}
-            <div className="rounded-2xl border border-[#E2D9CE] bg-[#EFE9E0] p-6">
+            <div className="rounded-2xl border border-[#E2D9CE] bg-[#EFE9E0] p-4 sm:p-6">
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#E2D9CE] pb-4">
                 <div>
                   <h2 className="font-serif text-2xl font-semibold text-[#1F1B18]">
@@ -1045,7 +1050,7 @@ export const ProfileSection: React.FC<ProfileSectionProps> = ({
                                     accentColor="#B68D5E"
                                     textColor="#1F1B18"
                                     ariaLabel="Edit country code"
-                                    className="w-32 shrink-0 rounded-lg border border-[#E2D9CE]"
+                                    className="w-28 shrink-0 rounded-lg border border-[#E2D9CE] sm:w-32"
                                   />
                                   <input
                                     type="tel"

@@ -129,6 +129,8 @@ export const TESTIMONIAL_MEDIA: Record<string, MediaAsset> = {
   },
 };
 
+const CLEAN_SMILE_PHOTO = '/assets/aistudio/Radiant_Professional_Smile_Close-Up_2485c4d0.png';
+
 export const COMPARISON_CASES: ComparisonCase[] = [
   {
     id: 'porcelain-veneers',
@@ -137,8 +139,8 @@ export const COMPARISON_CASES: ComparisonCase[] = [
     timeframe: '1–2 Visits · Up to 14 Days',
     beforeLabel: 'Before',
     afterLabel: 'After',
-    beforeSrc: afterSmileImg,
-    afterSrc: afterSmileImg,
+    beforeSrc: CLEAN_SMILE_PHOTO,
+    afterSrc: CLEAN_SMILE_PHOTO,
     summary:
       'Ultra-thin custom porcelain layers cover chips, gaps, and deep stains—giving you a naturally brighter, even smile without shaving down your real teeth.',
   },

@@ -276,8 +276,19 @@ test('smileRetouch targets only tooth pixels and leaves skin and pink gums untou
   const lowerToothWeight = computeToothMaskWeight(200, 186, 162, 0.5, 0.61);
   assert.ok(lowerToothWeight > 0.5);
 
+  // Shaded upper half of lower central incisors & warm upper cervical edge must whiten
+  const lowerCentralShadedWeight = computeToothMaskWeight(154, 110, 83, 0.47, 0.58);
+  assert.ok(lowerCentralShadedWeight > 0.5);
+
+  const upperCervicalEdgeWeight = computeToothMaskWeight(211, 145, 117, 0.58, 0.39);
+  assert.ok(upperCervicalEdgeWeight > 0.25);
+
+  // Pink upper gum, lower gumline, and lower lip must remain completely untouched
   const gumWeight = computeToothMaskWeight(192, 118, 122, 0.5, 0.39);
   assert.equal(gumWeight, 0);
+  assert.equal(computeToothMaskWeight(158, 70, 63, 0.5, 0.35), 0);
+  assert.equal(computeToothMaskWeight(204, 110, 108, 0.5, 0.7), 0);
+  assert.equal(computeToothMaskWeight(131, 72, 58, 0.5, 0.66), 0);
 
   const cheekWeight = computeToothMaskWeight(206, 165, 142, 0.12, 0.2);
   assert.equal(cheekWeight, 0);
@@ -286,11 +297,17 @@ test('smileRetouch targets only tooth pixels and leaves skin and pink gums untou
   assert.ok(bB < 182 && bR > bB);
 
   const [day1R, day1G, day1B] = applyAfterToothWhitening(218, 206, 182, toothWeight, 0);
+  const [day7R, day7G, day7B] = applyAfterToothWhitening(218, 206, 182, toothWeight, 0.5);
   const [day14R, day14G, day14B] = applyAfterToothWhitening(218, 206, 182, toothWeight, 1);
-  assert.ok(day1B > bB);
-  assert.ok(day14R > day1R && day14G > day1G && day14B > day1B);
+
+  // Day 14 (w = 1) keeps the uploaded clean teeth photo untouched
+  assert.deepEqual([day14R, day14G, day14B], [218, 206, 182]);
+  // Decreasing slider gradually yellows teeth while staying cleaner than Before
+  assert.ok(day1B > bB && day1B < day7B && day7B < day14B);
+  assert.ok(day1R >= bR && day1G >= bG);
 
   // Zero-weight skin/gum pixels remain bit-identical across Before and Day 14
   assert.deepEqual(applyBeforeToothStain(206, 165, 142, 0), [206, 165, 142]);
+  assert.deepEqual(applyAfterToothWhitening(206, 165, 142, 0, 0), [206, 165, 142]);
   assert.deepEqual(applyAfterToothWhitening(206, 165, 142, 0, 1), [206, 165, 142]);
 });
