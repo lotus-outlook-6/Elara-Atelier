@@ -55,16 +55,17 @@ Adaptive layout scaling from narrow `360px`–`390px` phones (single-row scrolla
 | Layer | Technology |
 | :--- | :--- |
 | **Frontend** | React 19, TypeScript, Vite 8, Tailwind CSS v4, Motion (`motion/react`), Lucide & Hugeicons |
-| **Backend API** | Express (`src/server/createApp.ts`) shared between Node (`server.ts`) and Vercel (`api/index.cjs`) |
+| **Backend API** | Express (`src/server/createApp.ts`) shared between Node (`server.ts`) and Vercel (`api/index.js`) |
 | **Auth & Database** | Firebase Authentication (Google + Email/Password) & Cloud Firestore (`firestore.rules`) |
 | **Messaging** | Telegram Bot API (Webhook & Local Long Polling), SSE live updates, WhatsApp deep links |
 | **Testing** | Node `--test` via `tsx`, `tsc --noEmit`, Vite build, and Headless Chromium (`playwright-cli`) |
 
 ```text
 ├── api/
-│   └── index.cjs                # Bundled CommonJS Vercel Serverless function for /api/* routes
+│   ├── index.js                 # Bundled CommonJS Vercel Serverless function for /api/* routes
+│   └── package.json             # Marks api/ scope as CommonJS for Node/Vercel compatibility
 ├── docs/screenshots/            # Live rendered application screenshots for documentation
-├── public/                      # Static clinic media, smile photography & favicon.svg
+├── public/                      # Static clinic media, favicon.png & elara-logo.png
 ├── src/
 │   ├── components/
 │   │   ├── reactbits/           # AtelierDatePicker, BounceCards, GlareHover, GlideSelect, HoldButton, MagicBento, SlideCommit, SoftAurora
@@ -77,7 +78,7 @@ Adaptive layout scaling from narrow `360px`–`390px` phones (single-row scrolla
 │   │   ├── createApp.ts         # Shared Express routes (/api/health, /api/telegram/*)
 │   │   ├── conciergeStore.ts    # Strict per-user Telegram booking/chat matching & 4h rule enforcement
 │   │   ├── telegramBot.ts       # Bot menu keyboards, HTML push cards, /start & callback handlers
-│   │   └── vercelHandler.ts     # TypeScript source bundled to api/index.cjs for Vercel Serverless
+│   │   └── vercelHandler.ts     # TypeScript source bundled to api/index.js for Vercel Serverless
 │   └── utils/                   # Form validation, 4h edit timers & canvas tooth-retouch algorithms
 ├── server.ts                    # Local Node & container Express + Vite server (port 3000)
 └── vercel.json                  # Vercel build output (dist/), /api/* rewrite & static exclusions

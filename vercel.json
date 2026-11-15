@@ -3,17 +3,17 @@
   "buildCommand": "vite build && npm run build:api",
   "outputDirectory": "dist",
   "functions": {
-    "api/index.cjs": {
-      "includeFiles": "firebase-applet-config.json"
+    "api/index.js": {
+      "includeFiles": "{firebase-applet-config.json,api/package.json}"
     }
   },
   "rewrites": [
     {
       "source": "/api/(.*)",
-      "destination": "/api/index.cjs"
+      "destination": "/api/index.js"
     },
     {
-      "source": "/((?!api/|assets/|favicon\\.svg|favicon\\.png|favicon\\.ico).*)",
+      "source": "/((?!api/|assets/|elara-logo\\.png|favicon\\.svg|favicon\\.png|favicon\\.ico).*)",
       "destination": "/index.html"
     }
   ]

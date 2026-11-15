@@ -1,7 +1,7 @@
 /**
  * Vercel Serverless handler source exporting the shared Elara Atelier Express app.
- * Compiled to CommonJS api/index.cjs during build so Express runs cleanly on Vercel
- * without ESM/CJS dynamic require errors.
+ * Compiled to CommonJS api/index.js inside api/ (with api/package.json type commonjs)
+ * so Express runs cleanly on Vercel without ESM/CJS dynamic require errors.
  */
 
 import type { Request, Response } from 'express';
