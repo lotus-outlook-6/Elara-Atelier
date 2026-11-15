@@ -42,7 +42,7 @@ export const CLINIC_COLORS = {
 export const CLINIC_CONFIG = {
   brandName: 'ELARA ATELIER',
   fullTitle: 'Elara Atelier — Aesthetic & Dental Studio',
-  tagline: 'Aesthetic Medicine · Cosmetic Dentistry · Skin Longevity',
+  tagline: 'Facial Aesthetics · Cosmetic Dentistry · Skin Renewal',
   addressLine1: '742 Mercer Row, Suite 300',
   addressLine2: 'Beverly Hills, CA 90210',
   phoneDisplay: '+1 (310) 555-0194',

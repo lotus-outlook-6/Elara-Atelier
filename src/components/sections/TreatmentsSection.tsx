@@ -91,27 +91,27 @@ export const TreatmentsSection: React.FC<TreatmentsSectionProps> = ({
           rowSpan: treatment.rowSpan ?? 1,
           onClick: () => handleSelect(treatment),
           content: (
-            <GlareHover
-              width="100%"
-              height="100%"
-              background={isSelected ? '#FAF7F2' : '#EFE9E0'}
-              borderRadius="16px"
-              borderColor={isSelected ? '#1F1B18' : '#E2D9CE'}
-              glareColor="#FAF7F2"
-              glareOpacity={0.45}
-              variant="sheen"
-              playOnce={true}
-              transitionDuration={550}
-              className={`!block h-full w-full transition-colors duration-200 ${
-                isSelected ? 'border-2' : ''
+            <div
+              className={`h-full w-full rounded-[16px] transition-colors duration-200 ${
+                isSelected
+                  ? 'border-2 border-[#1F1B18] bg-[#FAF7F2]'
+                  : 'border border-[#E2D9CE] bg-[#EFE9E0]'
               }`}
             >
               {isWide ? (
                 <div className="grid h-full w-full grid-cols-1 gap-4 p-4 text-left sm:grid-cols-12 sm:p-5">
-                  <div
-                    className={`h-36 overflow-hidden rounded-xl border bg-[#E5DACB] sm:col-span-5 sm:h-full ${
-                      isSelected ? 'border-[#1F1B18]/40' : 'border-[#E2D9CE]'
-                    }`}
+                  <GlareHover
+                    width="100%"
+                    height="100%"
+                    background="#E5DACB"
+                    borderRadius="12px"
+                    borderColor={isSelected ? 'rgba(31, 27, 24, 0.4)' : '#E2D9CE'}
+                    glareColor="#FAF7F2"
+                    glareOpacity={0.5}
+                    variant="sheen"
+                    playOnce={true}
+                    transitionDuration={550}
+                    className="!block h-36 w-full overflow-hidden sm:col-span-5 sm:h-full"
                   >
                     {media ? (
                       <img
@@ -121,7 +121,7 @@ export const TreatmentsSection: React.FC<TreatmentsSectionProps> = ({
                         className={`h-full w-full object-cover ${media.objectPosition ?? 'object-center'}`}
                       />
                     ) : null}
-                  </div>
+                  </GlareHover>
 
                   <div className="flex flex-col justify-between py-1 sm:col-span-7 sm:pl-2">
                     <div>
@@ -160,10 +160,18 @@ export const TreatmentsSection: React.FC<TreatmentsSectionProps> = ({
               ) : (
                 <div className="flex h-full w-full flex-col justify-between p-4 text-left sm:p-5">
                   <div>
-                    <div
-                      className={`mb-3.5 h-32 w-full overflow-hidden rounded-xl border bg-[#E5DACB] ${
-                        isSelected ? 'border-[#1F1B18]/40' : 'border-[#E2D9CE]'
-                      }`}
+                    <GlareHover
+                      width="100%"
+                      height="128px"
+                      background="#E5DACB"
+                      borderRadius="12px"
+                      borderColor={isSelected ? 'rgba(31, 27, 24, 0.4)' : '#E2D9CE'}
+                      glareColor="#FAF7F2"
+                      glareOpacity={0.5}
+                      variant="sheen"
+                      playOnce={true}
+                      transitionDuration={550}
+                      className="mb-3.5 !block h-32 w-full overflow-hidden"
                     >
                       {media ? (
                         <img
@@ -173,7 +181,7 @@ export const TreatmentsSection: React.FC<TreatmentsSectionProps> = ({
                           className={`h-full w-full object-cover ${media.objectPosition ?? 'object-center'}`}
                         />
                       ) : null}
-                    </div>
+                    </GlareHover>
 
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-[11px] font-semibold tracking-[0.14em] text-[#B68D5E] uppercase">
@@ -207,7 +215,7 @@ export const TreatmentsSection: React.FC<TreatmentsSectionProps> = ({
                   </div>
                 </div>
               )}
-            </GlareHover>
+            </div>
           ),
         };
       }),
@@ -239,8 +247,7 @@ export const TreatmentsSection: React.FC<TreatmentsSectionProps> = ({
               Tailored Treatments Across Face, Smile &amp; Skin
             </ScrollReveal>
             <p className="mt-2 text-sm leading-relaxed text-[#6E655F]">
-              Every option below is an in-clinic appointment performed by our doctors or cosmetic
-              dentists. Select a service to pre-fill your visit booking.
+              Select a treatment below to see real before &amp; after results and pre-fill your booking.
             </p>
           </div>
 
@@ -282,8 +289,8 @@ export const TreatmentsSection: React.FC<TreatmentsSectionProps> = ({
             radius={16}
             theme="light"
             glowColor="#B68D5E"
-            enableBorderGlow={true}
-            enableSpotlight={true}
+            enableBorderGlow={false}
+            enableSpotlight={false}
             spotlightRadius={280}
             enableStars={false}
             enableTilt={false}

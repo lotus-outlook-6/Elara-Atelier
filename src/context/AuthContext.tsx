@@ -7,10 +7,12 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import {
   createUserWithEmailAndPassword,
+  getRedirectResult,
   onAuthStateChanged,
   sendEmailVerification,
   signInWithEmailAndPassword,
   signInWithPopup,
+  signInWithRedirect,
   signOut,
   updateProfile,
   type User,
@@ -118,6 +120,8 @@ interface AuthContextValue {
   sendConciergeMessage: (text: string) => Promise<{ sentToTelegram: boolean }>;
   botSyncNotice: BotSyncNotice | null;
   clearBotSyncNotice: () => void;
+  redirectAuthError: string | null;
+  clearRedirectAuthError: () => void;
   signInWithGoogle: () => Promise<User>;
   signInWithEmail: (email: string, password: string) => Promise<User>;
   registerWithEmail: (values: AccountFormValues) => Promise<User>;
@@ -196,9 +200,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     botUsername: CLINIC_CONFIG.defaultTelegramBotUsername,
   });
   const [botSyncNotice, setBotSyncNotice] = useState<BotSyncNotice | null>(null);
+  const [redirectAuthError, setRedirectAuthError] = useState<string | null>(null);
   const [linkedTelegramChatId, setLinkedTelegramChatId] = useState<string | null>(null);
   const [conciergeMessages, setConciergeMessages] = useState<ConciergeChatMessage[]>([]);
   const [conciergeMessagesLoading, setConciergeMessagesLoading] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    getRedirectResult(auth).catch(err => {
+      if (!active) return;
+      const msg = err instanceof Error ? err.message : String(err);
+      setRedirectAuthError(msg);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -520,12 +537,40 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [authReady, user, profile, profileLoading, bookings, bookingsLoading, linkedTelegramChatId]);
 
   /**
-   * Authenticate with Google popup.
-   * Output: authenticated Firebase User.
+   * Authenticate with Google popup, automatically falling back to redirect sign-in
+   * in top-level browser windows if popups are blocked by browser settings.
+   * Output: authenticated Firebase User (or pending promise during full-page redirect).
+   * Errors: throws Firebase Auth errors if popup is blocked inside an iframe or sign-in fails.
    */
   const signInWithGoogle = async (): Promise<User> => {
-    const result = await signInWithPopup(auth, googleProvider);
-    return result.user;
+    setRedirectAuthError(null);
+    try {
+      const result = await signInWithPopup(auth, googleProvider);
+      return result.user;
+    } catch (err) {
+      const code =
+        err && typeof err === 'object' && 'code' in err
+          ? String((err as { code?: unknown }).code)
+          : '';
+      const rawMessage = err instanceof Error ? err.message : String(err);
+      const isPopupBlocked =
+        code === 'auth/popup-blocked' ||
+        code === 'auth/operation-not-supported-in-this-environment' ||
+        rawMessage.includes('auth/popup-blocked');
+      const isTopLevelWindow =
+        typeof window !== 'undefined' && window.self === window.top;
+
+      if (isPopupBlocked && isTopLevelWindow) {
+        try {
+          window.sessionStorage.setItem('elara_google_redirect_pending', '1');
+        } catch {
+          // Ignore storage restrictions
+        }
+        await signInWithRedirect(auth, googleProvider);
+        return new Promise<User>(() => {});
+      }
+      throw err;
+    }
   };
 
   /**
@@ -881,6 +926,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         sendConciergeMessage,
         botSyncNotice,
         clearBotSyncNotice: () => setBotSyncNotice(null),
+        redirectAuthError,
+        clearRedirectAuthError: () => setRedirectAuthError(null),
         signInWithGoogle,
         signInWithEmail,
         registerWithEmail,

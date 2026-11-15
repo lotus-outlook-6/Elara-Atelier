@@ -17,12 +17,19 @@ export const Footer: React.FC = () => {
       <div className="mx-auto max-w-7xl px-4 py-14 sm:px-8 sm:py-16 2xl:max-w-[1440px]">
         <div className="grid grid-cols-1 gap-10 md:grid-cols-12">
           <div className="md:col-span-5">
-            <p className="font-serif text-xl font-semibold tracking-[0.18em] text-[#FAF7F2]">
-              {CLINIC_CONFIG.brandName}
-            </p>
+            <div className="inline-flex items-center gap-3">
+              <img
+                src="/elara-logo.png"
+                alt="Elara Atelier emblem"
+                className="h-10 w-10 shrink-0 object-contain"
+              />
+              <p className="font-serif text-xl font-semibold tracking-[0.18em] text-[#FAF7F2]">
+                {CLINIC_CONFIG.brandName}
+              </p>
+            </div>
             <p className="mt-3 max-w-sm text-sm leading-relaxed text-[#E2D9CE]/80">
-              {CLINIC_CONFIG.tagline}. Measured clinical artistry designed for longevity and
-              unhurried natural symmetry.
+              {CLINIC_CONFIG.tagline}. Gentle facial, dental, and skin care tailored for comfort
+              and natural-looking results.
             </p>
           </div>
 
@@ -48,7 +55,7 @@ export const Footer: React.FC = () => {
               </li>
               <li>
                 <a href="#booking" className="no-underline transition-colors hover:text-[#FAF7F2]">
-                  Private Concierge
+                  Book Visit
                 </a>
               </li>
             </ul>
@@ -72,7 +79,7 @@ export const Footer: React.FC = () => {
 
         <div className="mt-12 flex flex-col justify-between gap-4 border-t border-[#E2D9CE]/15 pt-6 text-xs text-[#E2D9CE]/65 sm:flex-row sm:items-center">
           <p>© {new Date().getFullYear()} {CLINIC_CONFIG.fullTitle}. All rights reserved.</p>
-          <p>Board-Certified Aesthetic Medicine &amp; Cosmetic Dentistry</p>
+          <p>Board-Certified Facial Aesthetics &amp; Cosmetic Dentistry</p>
         </div>
       </div>
     </footer>

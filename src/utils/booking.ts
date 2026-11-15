@@ -6,7 +6,12 @@
  */
 
 import { CLINIC_CONFIG } from '../config/clinicConfig';
-import { TREATMENTS, type TreatmentCategory, type TreatmentItem } from '../data/clinicData';
+import {
+  TREATMENTS,
+  type ComparisonCase,
+  type TreatmentCategory,
+  type TreatmentItem,
+} from '../data/clinicData';
 
 export type TelegramContactMethod = 'username' | 'phone';
 
@@ -607,4 +612,22 @@ export function calculateSmileProgressByDays(days: number): SmileProgressStage {
     estimatedCharge,
     formattedCharge: `$${estimatedCharge.toLocaleString('en-US')}`,
   };
+}
+
+/**
+ * Resolve the dynamic Before & After comparison case matching the selected treatment ID.
+ * Falls back cleanly to the first available case when an unknown ID is supplied.
+ * Inputs: treatmentId string, cases non-empty array of ComparisonCase objects.
+ * Output: matching ComparisonCase object (throws Error if cases is empty).
+ */
+export function getComparisonCaseForTreatment(
+  treatmentId: string,
+  cases: ComparisonCase[]
+): ComparisonCase {
+  if (!cases.length) {
+    throw new Error('Comparison cases catalog cannot be empty.');
+  }
+  const normalizedId = treatmentId.trim();
+  const match = cases.find(item => item.treatmentId === normalizedId);
+  return match ?? cases[0];
 }

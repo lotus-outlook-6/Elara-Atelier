@@ -1,22 +1,31 @@
 /**
  * Interactive Before & After comparison showcase wrapped in FadeContent.
- * Uses the exact same base smile photo on both sides and applies tooth-only
- * enamel retouching on canvas so facial skin, lips, and gums stay identical
- * while Before shows natural yellowing and After scales cleanly from Day 1 to Day 14.
+ * Dynamically updates its imagery, details, and interactive controls based on the
+ * selected treatment above—using pixel-accurate tooth retouching for Porcelain Veneers
+ * & Laser Whitening and aligned Before/After clinical imagery for every other service.
  */
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { MoveHorizontal } from 'lucide-react';
+import { ArrowDownRight, MoveHorizontal } from 'lucide-react';
+import { TREATMENTS } from '../../data/clinicData';
 import { COMPARISON_CASES } from '../../data/clinicMedia';
 import {
   calculateSmileProgressByDays,
   clampComparisonPercentage,
+  getComparisonCaseForTreatment,
 } from '../../utils/booking';
 import {
   buildToothMaskBuffer,
   renderSmileVariantImageData,
 } from '../../utils/smileRetouch';
 import FadeContent from '../reactbits/FadeContent';
+import GlideSelect, { type GlideSelectOption } from '../reactbits/GlideSelect';
+
+export interface BeforeAfterSectionProps {
+  selectedTreatmentId: string;
+  onSelectTreatment: (treatmentId: string) => void;
+  onProceedToBook: () => void;
+}
 
 interface CachedSmilePixels {
   width: number;
@@ -26,14 +35,23 @@ interface CachedSmilePixels {
 }
 
 /**
- * Interactive split-image comparison section with a Visit Time & Days slider
- * showing how tooth cleanliness & whiteness and estimated charge progress over visits.
+ * Interactive split-image Before & After showcase dynamically bound to the active treatment.
+ * Inputs: selectedTreatmentId, onSelectTreatment callback, onProceedToBook callback.
  * Output: Rendered Before & After comparison section.
  */
-export const BeforeAfterSection: React.FC = () => {
-  const activeCase = COMPARISON_CASES[0];
+export const BeforeAfterSection: React.FC<BeforeAfterSectionProps> = ({
+  selectedTreatmentId,
+  onSelectTreatment,
+  onProceedToBook,
+}) => {
+  const activeCase = useMemo(
+    () => getComparisonCaseForTreatment(selectedTreatmentId, COMPARISON_CASES),
+    [selectedTreatmentId]
+  );
+
   const [position, setPosition] = useState<number>(52);
   const [visitDays, setVisitDays] = useState<number>(14);
+  const [whiteningIntensity, setWhiteningIntensity] = useState<number>(14);
   const [dragging, setDragging] = useState(false);
   const [canvasReady, setCanvasReady] = useState(false);
 
@@ -42,10 +60,38 @@ export const BeforeAfterSection: React.FC = () => {
   const afterCanvasRef = useRef<HTMLCanvasElement>(null);
   const pixelCacheRef = useRef<CachedSmilePixels | null>(null);
 
-  const stage = useMemo(() => calculateSmileProgressByDays(visitDays), [visitDays]);
+  const isTeethMode = activeCase.retouchMode === 'teeth';
+  const isVeneers = activeCase.treatmentId === 'cd-veneers';
 
-  // Load the single unified smile photograph once, precompute its tooth-only mask, and paint Before
+  const activeToothSliderValue = isVeneers ? visitDays : whiteningIntensity;
+  const stage = useMemo(
+    () => calculateSmileProgressByDays(activeToothSliderValue),
+    [activeToothSliderValue]
+  );
+
+  const treatmentOptions: GlideSelectOption[] = useMemo(
+    () =>
+      TREATMENTS.map(item => ({
+        value: item.id,
+        label: item.name,
+        tag: item.startingPrice,
+      })),
+    []
+  );
+
+  // Reset split divider to balanced center when treatment changes
   useEffect(() => {
+    setPosition(52);
+  }, [activeCase.treatmentId]);
+
+  // Initialize pixel tooth-retouch canvas only when active treatment uses the teeth simulator
+  useEffect(() => {
+    if (!isTeethMode) {
+      setCanvasReady(false);
+      pixelCacheRef.current = null;
+      return undefined;
+    }
+
     let cancelled = false;
     setCanvasReady(false);
 
@@ -117,12 +163,13 @@ export const BeforeAfterSection: React.FC = () => {
     return () => {
       cancelled = true;
     };
-    // Intentionally initialize once per base image src; whiteningLevel updates are handled in the effect below
+    // Intentionally initialize once per teeth mode activation / image src; whiteningLevel updates separately below
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeCase.afterSrc]);
+  }, [isTeethMode, activeCase.afterSrc, activeCase.treatmentId]);
 
-  // Repaint only the After teeth canvas whenever the Visit Time & Days slider moves
+  // Repaint the After teeth canvas smoothly as the slider changes
   useEffect(() => {
+    if (!isTeethMode) return;
     const cache = pixelCacheRef.current;
     const afterCanvas = afterCanvasRef.current;
     if (!cache || !afterCanvas) return;
@@ -139,7 +186,7 @@ export const BeforeAfterSection: React.FC = () => {
       stage.whiteningLevel
     );
     aCtx.putImageData(updatedData, 0, 0);
-  }, [stage.whiteningLevel]);
+  }, [isTeethMode, stage.whiteningLevel]);
 
   /**
    * Convert pointer horizontal clientX coordinate into a clamped 5–95% split value.
@@ -194,6 +241,12 @@ export const BeforeAfterSection: React.FC = () => {
     }
   };
 
+  const afterBadgeText = isTeethMode
+    ? isVeneers
+      ? `After · ${stage.visitTimeLabel}`
+      : `After · ${stage.stageLabel}`
+    : activeCase.afterLabel;
+
   return (
     <section
       id="results"
@@ -202,10 +255,10 @@ export const BeforeAfterSection: React.FC = () => {
       <div className="mx-auto max-w-7xl px-4 sm:px-8 2xl:max-w-[1440px]">
         <FadeContent trigger="scroll" effect="fade" duration={0.85} threshold={0.12}>
           <div className="grid grid-cols-1 items-center gap-10 lg:grid-cols-12 lg:gap-12 2xl:gap-16">
-            {/* Editorial Copy & Visit-Days Whiteness Slider Column */}
+            {/* Editorial Copy, Service Switcher & Action Column */}
             <div className="lg:col-span-5">
               <p className="text-[11px] font-semibold tracking-[0.22em] text-[#B68D5E] uppercase">
-                Smile Results
+                {activeCase.categoryLabel}
               </p>
               <h2 className="mt-3 font-serif text-3xl leading-[1.14] font-semibold tracking-tight text-[#1F1B18] sm:text-4xl lg:text-5xl">
                 {activeCase.title}
@@ -214,10 +267,32 @@ export const BeforeAfterSection: React.FC = () => {
                 {activeCase.summary}
               </p>
 
-              <dl className="mt-7 space-y-3.5 border-t border-[#E2D9CE] pt-5">
+              {/* Quick Switch Treatment Dropdown synced with catalog & booking */}
+              <div className="mt-6">
+                <label className="mb-1.5 block text-xs font-semibold tracking-[0.14em] text-[#1F1B18] uppercase">
+                  Preview Results by Treatment
+                </label>
+                <GlideSelect
+                  options={treatmentOptions}
+                  value={activeCase.treatmentId}
+                  onChange={onSelectTreatment}
+                  showTags={true}
+                  size="lg"
+                  radius={10}
+                  menuWidth={360}
+                  surfaceColor="#FAF7F2"
+                  highlightColor="#EFE9E0"
+                  accentColor="#B68D5E"
+                  textColor="#1F1B18"
+                  ariaLabel="Preview results by treatment"
+                  className="w-full"
+                />
+              </div>
+
+              <dl className="mt-6 space-y-3.5 border-t border-[#E2D9CE] pt-5">
                 <div className="flex items-baseline justify-between gap-4 border-b border-[#E2D9CE] pb-3">
                   <dt className="text-xs font-medium tracking-[0.14em] text-[#6E655F] uppercase">
-                    Treatment
+                    Selected Service
                   </dt>
                   <dd className="text-right text-sm font-medium text-[#1F1B18]">
                     {activeCase.treatment}
@@ -228,61 +303,96 @@ export const BeforeAfterSection: React.FC = () => {
                     Visit Time
                   </dt>
                   <dd className="text-right text-sm font-semibold text-[#1F1B18] tabular-nums">
-                    {stage.visitTimeLabel}
+                    {isVeneers ? stage.visitTimeLabel : activeCase.timeframe}
                   </dd>
                 </div>
                 <div className="flex items-baseline justify-between gap-4">
                   <dt className="text-xs font-medium tracking-[0.14em] text-[#6E655F] uppercase">
-                    Estimated Charge
+                    {isVeneers ? 'Estimated Charge' : 'Starting Price'}
                   </dt>
                   <dd className="text-right font-serif text-xl font-semibold text-[#1F1B18] tabular-nums">
-                    {stage.formattedCharge}
+                    {isVeneers ? stage.formattedCharge : activeCase.startingPrice}
                   </dd>
                 </div>
               </dl>
 
-              {/* Visit Time & Days Slider */}
-              <div className="mt-6 rounded-xl border border-[#E2D9CE] bg-[#FAF7F2] p-4">
-                <div className="flex items-center justify-between gap-2">
-                  <label
-                    htmlFor="visit-days-slider"
-                    className="text-xs font-semibold tracking-[0.12em] text-[#1F1B18] uppercase"
-                  >
-                    Adjust Visit Time &amp; Days
-                  </label>
-                  <span className="text-xs font-medium text-[#B68D5E]">
-                    {stage.stageLabel}
-                  </span>
-                </div>
+              {/* Tooth Shade / Visit Days Slider when viewing Veneers or Laser Whitening */}
+              {isTeethMode ? (
+                <div className="mt-5 rounded-xl border border-[#E2D9CE] bg-[#FAF7F2] p-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <label
+                      htmlFor="visit-days-slider"
+                      className="text-xs font-semibold tracking-[0.12em] text-[#1F1B18] uppercase"
+                    >
+                      {isVeneers ? 'Adjust Visit Time & Days' : 'Whitening Shade Lift'}
+                    </label>
+                    <span className="text-xs font-medium text-[#B68D5E]">
+                      {stage.stageLabel}
+                    </span>
+                  </div>
 
-                <input
-                  id="visit-days-slider"
-                  type="range"
-                  min={1}
-                  max={14}
-                  step={1}
-                  value={visitDays}
-                  onChange={e => setVisitDays(Number(e.target.value))}
-                  aria-label="Adjust visit days to preview tooth cleanliness, whiteness, and estimated charge"
-                  aria-valuetext={`${stage.visitTimeLabel}, ${stage.formattedCharge}`}
-                  className="mt-3 h-2 w-full cursor-pointer accent-[#1F1B18]"
-                />
+                  <input
+                    id="visit-days-slider"
+                    type="range"
+                    min={1}
+                    max={14}
+                    step={1}
+                    value={activeToothSliderValue}
+                    onChange={e => {
+                      const next = Number(e.target.value);
+                      if (isVeneers) setVisitDays(next);
+                      else setWhiteningIntensity(next);
+                    }}
+                    aria-label={
+                      isVeneers
+                        ? 'Adjust visit days to preview tooth brightness and estimated charge'
+                        : 'Adjust whitening level to preview shade brightness'
+                    }
+                    aria-valuetext={
+                      isVeneers ? `${stage.visitTimeLabel}, ${stage.formattedCharge}` : stage.stageLabel
+                    }
+                    className="mt-3 h-2 w-full cursor-pointer accent-[#1F1B18]"
+                  />
 
-                <div className="mt-2 flex items-center justify-between gap-2 text-[10px] font-medium text-[#6E655F] sm:text-[11px]">
-                  <span>1 Day · 1 Visit</span>
-                  <span>7 Days · Mid</span>
-                  <span>14 Days · 2 Visits</span>
+                  <div className="mt-2 flex items-center justify-between gap-2 text-[10px] font-medium text-[#6E655F] sm:text-[11px]">
+                    {isVeneers ? (
+                      <>
+                        <span>1 Day · 1 Visit</span>
+                        <span>7 Days · Mid</span>
+                        <span>14 Days · 2 Visits</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>Gentle Polish</span>
+                        <span>Natural Lift</span>
+                        <span>Brightest Lift</span>
+                      </>
+                    )}
+                  </div>
                 </div>
+              ) : null}
+
+              <div className="mt-6">
+                <button
+                  type="button"
+                  onClick={onProceedToBook}
+                  className="inline-flex h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-[10px] bg-[#1F1B18] px-6 text-xs font-semibold tracking-[0.14em] text-[#FAF7F2] uppercase transition-colors duration-200 hover:bg-[#352F2B] sm:w-auto"
+                >
+                  Book This Treatment
+                  <ArrowDownRight className="h-4 w-4 text-[#B68D5E]" aria-hidden="true" />
+                </button>
               </div>
             </div>
 
-            {/* Interactive Split Comparison Frame (Exact Same Smile Photo, Teeth-Only Retouch) */}
+            {/* Interactive Split Comparison Frame */}
             <div className="lg:col-span-7">
               <div
                 ref={frameRef}
                 role="group"
-                aria-label="Interactive before and after smile comparison"
+                aria-label={`Interactive before and after comparison for ${activeCase.treatment}`}
                 data-testid="smile-comparison-frame"
+                data-treatment-id={activeCase.treatmentId}
+                data-retouch-mode={activeCase.retouchMode}
                 data-canvas-ready={canvasReady ? 'true' : 'false'}
                 className="relative aspect-[4/3] w-full cursor-ew-resize overflow-hidden rounded-2xl border border-[#E2D9CE] bg-[#EFE9E0] select-none touch-none"
                 onPointerDown={handlePointerDown}
@@ -290,44 +400,71 @@ export const BeforeAfterSection: React.FC = () => {
                 onPointerUp={handlePointerUp}
                 onPointerCancel={handlePointerUp}
               >
-                {/* Fallback Base Photo while canvas initializes */}
-                <img
-                  src={activeCase.afterSrc}
-                  alt={activeCase.beforeLabel}
-                  className="pointer-events-none block h-full w-full object-cover"
-                  draggable={false}
-                />
+                {isTeethMode ? (
+                  <>
+                    {/* Fallback Base Photo while canvas initializes */}
+                    <img
+                      src={activeCase.afterSrc}
+                      alt={activeCase.beforeLabel}
+                      className="pointer-events-none block h-full w-full object-cover"
+                      draggable={false}
+                    />
 
-                {/* Before Layer: Exact same smile with natural everyday yellowed teeth */}
-                <canvas
-                  ref={beforeCanvasRef}
-                  aria-label="Before treatment: natural yellowed teeth"
-                  data-testid="before-smile-canvas"
-                  className={`pointer-events-none absolute inset-0 block h-full w-full object-cover transition-opacity duration-150 ${
-                    canvasReady ? 'opacity-100' : 'opacity-0'
-                  }`}
-                />
+                    {/* Before Layer: natural yellowed teeth */}
+                    <canvas
+                      ref={beforeCanvasRef}
+                      aria-label="Before treatment: natural yellowed teeth"
+                      data-testid="before-smile-canvas"
+                      className={`pointer-events-none absolute inset-0 block h-full w-full object-cover transition-opacity duration-150 ${
+                        canvasReady ? 'opacity-100' : 'opacity-0'
+                      }`}
+                    />
 
-                {/* After Layer: Exact same smile with teeth-only cleaning (Day 1) to bright white (Day 14) */}
-                <canvas
-                  ref={afterCanvasRef}
-                  aria-label={`After ${stage.visitTimeLabel}: clean whitened teeth`}
-                  data-testid="after-smile-canvas"
-                  data-whitening-level={stage.whiteningLevel}
-                  className={`pointer-events-none absolute inset-0 block h-full w-full object-cover transition-opacity duration-150 ${
-                    canvasReady ? 'opacity-100' : 'opacity-0'
-                  }`}
-                  style={{
-                    clipPath: `inset(0 0 0 ${position}%)`,
-                  }}
-                />
+                    {/* After Layer: cleaned/whitened teeth */}
+                    <canvas
+                      ref={afterCanvasRef}
+                      aria-label={`After ${stage.visitTimeLabel}: clean whitened teeth`}
+                      data-testid="after-smile-canvas"
+                      data-whitening-level={stage.whiteningLevel}
+                      className={`pointer-events-none absolute inset-0 block h-full w-full object-cover transition-opacity duration-150 ${
+                        canvasReady ? 'opacity-100' : 'opacity-0'
+                      }`}
+                      style={{
+                        clipPath: `inset(0 0 0 ${position}%)`,
+                      }}
+                    />
+                  </>
+                ) : (
+                  <>
+                    {/* Before Photo Layer */}
+                    <img
+                      src={activeCase.beforeSrc}
+                      alt={`${activeCase.treatment} — ${activeCase.beforeLabel}`}
+                      data-testid="before-comparison-image"
+                      className="pointer-events-none block h-full w-full object-cover"
+                      draggable={false}
+                    />
+
+                    {/* After Photo Layer Clipped by Slider Position */}
+                    <img
+                      src={activeCase.afterSrc}
+                      alt={`${activeCase.treatment} — ${activeCase.afterLabel}`}
+                      data-testid="after-comparison-image"
+                      className="pointer-events-none absolute inset-0 block h-full w-full object-cover"
+                      style={{
+                        clipPath: `inset(0 0 0 ${position}%)`,
+                      }}
+                      draggable={false}
+                    />
+                  </>
+                )}
 
                 {/* Top Corner Labels */}
                 <span className="pointer-events-none absolute top-3 left-3 rounded-md bg-[#1F1B18]/85 px-2 py-1 text-[9px] font-semibold tracking-[0.15em] text-[#FAF7F2] uppercase sm:top-4 sm:left-4 sm:px-2.5 sm:text-[10px] sm:tracking-[0.18em]">
-                  Before
+                  {activeCase.beforeLabel}
                 </span>
                 <span className="pointer-events-none absolute top-3 right-3 rounded-md bg-[#FAF7F2]/92 px-2 py-1 text-[9px] font-semibold tracking-[0.15em] text-[#1F1B18] uppercase sm:top-4 sm:right-4 sm:px-2.5 sm:text-[10px] sm:tracking-[0.18em]">
-                  After · {stage.visitTimeLabel}
+                  {afterBadgeText}
                 </span>
 
                 {/* Vertical Divider & Interactive Handle */}

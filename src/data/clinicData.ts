@@ -6,7 +6,7 @@
 export type TreatmentCategory =
   | 'Facial Aesthetics'
   | 'Cosmetic Dentistry'
-  | 'Skin Longevity';
+  | 'Skin Renewal';
 
 export interface TreatmentItem {
   id: string;
@@ -41,9 +41,13 @@ export interface TestimonialItem {
 
 export interface ComparisonCase {
   id: string;
+  treatmentId: string;
+  categoryLabel: string;
   title: string;
   treatment: string;
   timeframe: string;
+  startingPrice: string;
+  retouchMode: 'teeth' | 'pair';
   beforeLabel: string;
   afterLabel: string;
   beforeSrc: string;
@@ -56,16 +60,16 @@ export const TRUST_METRICS: TrustMetric[] = [
     id: 'years',
     to: 12,
     suffix: '+',
-    label: 'Years Clinical Excellence',
-    detail: 'Board-certified cosmetic dentists and facial aesthetic physicians practicing under one roof.',
+    label: 'Years of Experience',
+    detail: 'Board-certified cosmetic dentists and facial aesthetic doctors practicing under one roof.',
   },
   {
     id: 'procedures',
     to: 4800,
     separator: ',',
     suffix: '+',
-    label: 'Procedures Performed',
-    detail: 'Bespoke non-surgical facial harmonizations, porcelain veneers, and cellular skin protocols.',
+    label: 'Treatments Completed',
+    detail: 'Natural facial balancing, custom porcelain veneers, and gentle skin care sessions.',
   },
   {
     id: 'rating',
@@ -73,14 +77,14 @@ export const TRUST_METRICS: TrustMetric[] = [
     decimals: 1,
     suffix: '★',
     label: 'Verified Patient Rating',
-    detail: 'Measured across post-care clinical follow-ups and independent patient reviews.',
+    detail: 'Based on verified patient reviews and post-visit follow-ups.',
   },
 ];
 
 export const TREATMENT_CATEGORIES: TreatmentCategory[] = [
   'Facial Aesthetics',
   'Cosmetic Dentistry',
-  'Skin Longevity',
+  'Skin Renewal',
 ];
 
 export const TREATMENTS: TreatmentItem[] = [
@@ -90,7 +94,7 @@ export const TREATMENTS: TreatmentItem[] = [
     category: 'Facial Aesthetics',
     name: 'Cheek & Jawline Contouring',
     benefit:
-      'In-clinic filler appointment performed by our doctor to gently lift cheekbones and define your jawline without surgery.',
+      'Doctor-guided filler appointment to gently lift cheekbones and define your jawline without surgery.',
     duration: '45 min visit',
     startingPrice: '$1,150',
     colSpan: 2,
@@ -100,7 +104,7 @@ export const TREATMENTS: TreatmentItem[] = [
     category: 'Facial Aesthetics',
     name: 'Wrinkle Relaxing Injections',
     benefit:
-      'Quick targeted micro-injections that smooth forehead lines and crow’s feet while keeping natural facial expressions.',
+      'Quick targeted injections that smooth forehead creases and crow’s feet while keeping natural facial expressions.',
     duration: '30 min visit',
     startingPrice: '$480',
   },
@@ -109,7 +113,7 @@ export const TREATMENTS: TreatmentItem[] = [
     category: 'Facial Aesthetics',
     name: 'Natural Lip Shaping & Hydration',
     benefit:
-      'Soft hyaluronic lip filler appointment that adds subtle fullness, smooths dry lines, and keeps your smile balanced.',
+      'Soft lip filler appointment that adds gentle fullness, smooths dry lines, and keeps your smile balanced.',
     duration: '40 min visit',
     startingPrice: '$790',
   },
@@ -118,7 +122,7 @@ export const TREATMENTS: TreatmentItem[] = [
     category: 'Facial Aesthetics',
     name: 'Collagen Skin-Firming Session',
     benefit:
-      'Non-surgical clinic procedure that stimulates your skin’s own collagen to tighten sagging cheeks, temples, and jawline.',
+      'Non-surgical treatment that boosts natural collagen to gradually firm cheeks, smile lines, and jawline.',
     duration: '50 min visit',
     startingPrice: '$1,450',
     colSpan: 2,
@@ -164,41 +168,41 @@ export const TREATMENTS: TreatmentItem[] = [
     colSpan: 2,
   },
 
-  // Skin Longevity
+  // Skin Renewal
   {
     id: 'sl-polynucleotide',
-    category: 'Skin Longevity',
+    category: 'Skin Renewal',
     name: 'Under-Eye Renewal Treatment',
     benefit:
-      'Clinic micro-infusion procedure for dark circles and fine under-eye lines to restore firmer, well-rested skin.',
+      'Gentle under-eye micro-infusion that brightens dark circles, softens hollows, and smooths fine lines.',
     duration: '45 min visit',
     startingPrice: '$880',
     colSpan: 2,
   },
   {
     id: 'sl-microneedling',
-    category: 'Skin Longevity',
+    category: 'Skin Renewal',
     name: 'RF Microneedling Skin Tightening',
     benefit:
-      'Tiny precision needles paired with gentle warmth to shrink pores, smooth acne scars, and tighten facial skin.',
+      'Tiny needles paired with gentle warmth to tighten pores, smooth acne scars, and firm facial skin.',
     duration: '60 min visit',
     startingPrice: '$1,050',
   },
   {
     id: 'sl-laser-toning',
-    category: 'Skin Longevity',
+    category: 'Skin Renewal',
     name: 'Tone & Sun-Spot Laser Facial',
     benefit:
-      'No-downtime laser session performed by our skin specialist to fade sun spots, uneven pigment, and redness.',
+      'Zero-downtime laser session performed by our skin specialist to fade sun spots, uneven tone, and redness.',
     duration: '45 min visit',
     startingPrice: '$650',
   },
   {
     id: 'sl-barrier-infusion',
-    category: 'Skin Longevity',
+    category: 'Skin Renewal',
     name: 'Sculpting Facial & Cooling Therapy',
     benefit:
-      'Hands-on facial massage and cooling therapy in our studio to reduce puffiness, calm redness, and hydrate skin.',
+      'Hands-on sculpting massage and cooling therapy to reduce morning puffiness, calm redness, and hydrate skin.',
     duration: '75 min visit',
     startingPrice: '$490',
     colSpan: 2,

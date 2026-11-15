@@ -502,7 +502,7 @@ export const ProfileSection: React.FC<ProfileSectionProps> = ({
                         accentColor="#B68D5E"
                         textColor="#1F1B18"
                         ariaLabel="Profile phone country code"
-                        className="w-full rounded-lg border border-[#E2D9CE]"
+                        className="w-full"
                       />
                     </div>
                   </div>
@@ -999,7 +999,7 @@ export const ProfileSection: React.FC<ProfileSectionProps> = ({
                                   accentColor="#B68D5E"
                                   textColor="#1F1B18"
                                   ariaLabel="Edit consultation treatment"
-                                  className="w-full rounded-lg border border-[#E2D9CE]"
+                                  className="w-full"
                                 />
                               </div>
 
@@ -1050,7 +1050,7 @@ export const ProfileSection: React.FC<ProfileSectionProps> = ({
                                     accentColor="#B68D5E"
                                     textColor="#1F1B18"
                                     ariaLabel="Edit country code"
-                                    className="w-28 shrink-0 rounded-lg border border-[#E2D9CE] sm:w-32"
+                                    className="w-28 shrink-0 sm:w-32"
                                   />
                                   <input
                                     type="tel"

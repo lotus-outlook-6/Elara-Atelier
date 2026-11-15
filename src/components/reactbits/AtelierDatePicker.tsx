@@ -303,7 +303,7 @@ export const AtelierDatePicker: React.FC<AtelierDatePickerProps> = ({
                   accentColor="#B68D5E"
                   textColor="#1F1B18"
                   ariaLabel="Calendar month"
-                  className="flex-1 rounded-lg border border-[#E2D9CE]"
+                  className="flex-1"
                 />
                 <GlideSelect
                   options={yearOptions}
@@ -319,7 +319,7 @@ export const AtelierDatePicker: React.FC<AtelierDatePickerProps> = ({
                   accentColor="#B68D5E"
                   textColor="#1F1B18"
                   ariaLabel="Calendar year"
-                  className="w-[82px] shrink-0 rounded-lg border border-[#E2D9CE]"
+                  className="w-[82px] shrink-0"
                 />
               </div>
 

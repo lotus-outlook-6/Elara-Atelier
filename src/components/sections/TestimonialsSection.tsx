@@ -35,62 +35,62 @@ export const TestimonialsSection: React.FC = () => {
             {TESTIMONIALS.map(item => {
               const media = TESTIMONIAL_MEDIA[item.id];
               return (
-                <GlareHover
+                <article
                   key={item.id}
-                  width="100%"
-                  height="100%"
-                  background="#EFE9E0"
-                  borderColor="#E2D9CE"
-                  borderRadius="16px"
-                  glareColor="#FAF7F2"
-                  glareOpacity={0.45}
-                  variant="sheen"
-                  playOnce={true}
-                  transitionDuration={550}
-                  className="!block h-full w-full"
+                  className="flex h-full w-full flex-col justify-between rounded-[16px] border border-[#E2D9CE] bg-[#EFE9E0] p-5 text-left sm:p-7 2xl:p-8"
                 >
-                  <article className="flex h-full w-full flex-col justify-between p-5 text-left sm:p-7 2xl:p-8">
-                    <div>
-                      {media ? (
-                        <div className="mb-5 h-40 w-full overflow-hidden rounded-xl border border-[#E2D9CE] bg-[#E5DACB] 2xl:h-48">
-                          <img
-                            src={media.src}
-                            alt={media.alt}
-                            referrerPolicy="no-referrer"
-                            className="h-full w-full object-cover"
-                          />
-                        </div>
-                      ) : null}
-
-                      <div
-                        className="flex items-center gap-1"
-                        aria-label={`${item.rating} out of 5 stars`}
+                  <div>
+                    {media ? (
+                      <GlareHover
+                        width="100%"
+                        height="160px"
+                        background="#E5DACB"
+                        borderRadius="12px"
+                        borderColor="#E2D9CE"
+                        glareColor="#FAF7F2"
+                        glareOpacity={0.5}
+                        variant="sheen"
+                        playOnce={true}
+                        transitionDuration={550}
+                        className="mb-5 !block h-40 w-full overflow-hidden 2xl:h-48"
                       >
-                        {Array.from({ length: item.rating }).map((_, idx) => (
-                          <Star
-                            key={idx}
-                            className="h-3.5 w-3.5 fill-[#B68D5E] text-[#B68D5E]"
-                            aria-hidden="true"
-                          />
-                        ))}
-                      </div>
+                        <img
+                          src={media.src}
+                          alt={media.alt}
+                          referrerPolicy="no-referrer"
+                          className="h-full w-full object-cover"
+                        />
+                      </GlareHover>
+                    ) : null}
 
-                      <blockquote className="mt-4 font-serif text-xl leading-relaxed text-[#1F1B18]">
-                        “{item.quote}”
-                      </blockquote>
+                    <div
+                      className="flex items-center gap-1"
+                      aria-label={`${item.rating} out of 5 stars`}
+                    >
+                      {Array.from({ length: item.rating }).map((_, idx) => (
+                        <Star
+                          key={idx}
+                          className="h-3.5 w-3.5 fill-[#B68D5E] text-[#B68D5E]"
+                          aria-hidden="true"
+                        />
+                      ))}
                     </div>
 
-                    <footer className="mt-6 border-t border-[#E2D9CE] pt-4">
-                      <p className="text-sm font-semibold text-[#1F1B18]">
-                        {item.patientName} ·{' '}
-                        <span className="font-normal text-[#6E655F]">{item.location}</span>
-                      </p>
-                      <p className="mt-1 text-xs tracking-[0.12em] text-[#B68D5E] uppercase">
-                        {item.treatment}
-                      </p>
-                    </footer>
-                  </article>
-                </GlareHover>
+                    <blockquote className="mt-4 font-serif text-xl leading-relaxed text-[#1F1B18]">
+                      “{item.quote}”
+                    </blockquote>
+                  </div>
+
+                  <footer className="mt-6 border-t border-[#E2D9CE] pt-4">
+                    <p className="text-sm font-semibold text-[#1F1B18]">
+                      {item.patientName} ·{' '}
+                      <span className="font-normal text-[#6E655F]">{item.location}</span>
+                    </p>
+                    <p className="mt-1 text-xs tracking-[0.12em] text-[#B68D5E] uppercase">
+                      {item.treatment}
+                    </p>
+                  </footer>
+                </article>
               );
             })}
           </div>

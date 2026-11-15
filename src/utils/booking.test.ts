@@ -14,6 +14,7 @@ import {
   canEditBooking,
   clampComparisonPercentage,
   filterTreatmentsByCategory,
+  getComparisonCaseForTreatment,
   getRemainingEditWindow,
   getTreatmentById,
   resolveEffectiveTelegram,
@@ -24,6 +25,7 @@ import {
   validateFullName,
   validateTelegramContact,
 } from './booking';
+import { TREATMENTS, type ComparisonCase } from '../data/clinicData';
 import {
   applyAfterToothWhitening,
   applyBeforeToothStain,
@@ -34,6 +36,39 @@ test('filterTreatmentsByCategory returns only matching category items', () => {
   const dental = filterTreatmentsByCategory('Cosmetic Dentistry');
   assert.ok(dental.length >= 4);
   assert.ok(dental.every(item => item.category === 'Cosmetic Dentistry'));
+
+  const skin = filterTreatmentsByCategory('Skin Renewal');
+  assert.equal(skin.length, 4);
+  assert.ok(skin.every(item => item.category === 'Skin Renewal'));
+});
+
+test('getComparisonCaseForTreatment matches every treatmentId and falls back cleanly', () => {
+  const fixtureCases: ComparisonCase[] = TREATMENTS.map(item => ({
+    id: `case-${item.id}`,
+    treatmentId: item.id,
+    categoryLabel: item.category,
+    title: item.name,
+    treatment: item.name,
+    timeframe: item.duration,
+    startingPrice: item.startingPrice,
+    retouchMode: item.id === 'cd-veneers' || item.id === 'cd-whitening' ? 'teeth' : 'pair',
+    beforeLabel: 'Before',
+    afterLabel: 'After',
+    beforeSrc: `/mock/${item.id}-before.jpg`,
+    afterSrc: `/mock/${item.id}-after.jpg`,
+    summary: item.benefit,
+  }));
+
+  for (const item of TREATMENTS) {
+    const resolved = getComparisonCaseForTreatment(item.id, fixtureCases);
+    assert.equal(resolved.treatmentId, item.id);
+    assert.equal(resolved.treatment, item.name);
+  }
+
+  const fallback = getComparisonCaseForTreatment('unknown-service', fixtureCases);
+  assert.equal(fallback.treatmentId, fixtureCases[0].treatmentId);
+
+  assert.throws(() => getComparisonCaseForTreatment('cd-veneers', []), /cannot be empty/i);
 });
 
 test('getTreatmentById finds treatment or returns undefined', () => {

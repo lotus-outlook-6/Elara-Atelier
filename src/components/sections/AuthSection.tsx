@@ -4,7 +4,7 @@
  * dropdown, and calendar feels identical in smoothness to the studio showcase.
  */
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
   Calendar,
@@ -62,6 +62,9 @@ function formatAuthError(err: unknown): string {
   if (raw.includes('auth/popup-closed-by-user')) {
     return 'Google sign-in popup was closed before completing.';
   }
+  if (raw.includes('auth/popup-blocked')) {
+    return 'Your browser blocked the Google Sign-In popup. Allow popups for this site in your browser bar and try again, or sign in with Email below.';
+  }
   if (raw.includes('auth/unauthorized-domain')) {
     return 'This domain is not authorized for Google Sign-In in Firebase Console yet.';
   }
@@ -80,6 +83,9 @@ export const AuthSection: React.FC<AuthSectionProps> = ({
     user,
     userPhotoUrl,
     profile,
+    profileLoading,
+    redirectAuthError,
+    clearRedirectAuthError,
     signInWithEmail,
     signInWithGoogle,
     registerWithEmail,
@@ -105,6 +111,36 @@ export const AuthSection: React.FC<AuthSectionProps> = ({
   const [submitting, setSubmitting] = useState(false);
   const [needsGoogleProfile, setNeedsGoogleProfile] = useState(false);
   const [googleAvatarPreview, setGoogleAvatarPreview] = useState<string | null>(null);
+  const googleAuthInitiatedRef = useRef(false);
+
+  useEffect(() => {
+    if (!redirectAuthError) return;
+    setGeneralError(formatAuthError(redirectAuthError));
+    clearRedirectAuthError();
+  }, [redirectAuthError, clearRedirectAuthError]);
+
+  useEffect(() => {
+    if (!user || profileLoading) return;
+    if (profile) {
+      if (googleAuthInitiatedRef.current) {
+        googleAuthInitiatedRef.current = false;
+        setSubmitting(false);
+        onSuccess();
+      }
+      return;
+    }
+
+    const cleanDisplayName = sanitizeNameInput(user.displayName || '');
+    setGoogleAvatarPreview(userPhotoUrl);
+    setRegisterValues(prev => ({
+      ...prev,
+      fullName: prev.fullName || cleanDisplayName,
+      email: prev.email || user.email || '',
+    }));
+    setNeedsGoogleProfile(true);
+    googleAuthInitiatedRef.current = false;
+    setSubmitting(false);
+  }, [user, profile, profileLoading, userPhotoUrl, onSuccess]);
 
   const countryCodeOptions: GlideSelectOption[] = useMemo(
     () => COUNTRY_CODES.map(opt => ({ value: opt.code, label: opt.label })),
@@ -149,10 +185,13 @@ export const AuthSection: React.FC<AuthSectionProps> = ({
   };
 
   /**
-   * Handle Google OAuth popup sign-in, prompting for 18+ profile completion if needed.
+   * Handle Google OAuth popup sign-in (with redirect fallback when blocked),
+   * prompting for 18+ profile completion when the patient has no Firestore profile yet.
+   * Errors: displays readable auth error if popup/redirect fails.
    */
   const handleGoogleSignIn = async () => {
     setGeneralError(null);
+    googleAuthInitiatedRef.current = true;
     setSubmitting(true);
     try {
       const signedUser = await signInWithGoogle();
@@ -161,20 +200,10 @@ export const AuthSection: React.FC<AuthSectionProps> = ({
         signedUser.providerData?.find(p => p?.photoURL)?.photoURL?.trim() ||
         null;
       setGoogleAvatarPreview(capturedPhoto);
-      if (!profile) {
-        const cleanDisplayName = sanitizeNameInput(signedUser.displayName || '');
-        setRegisterValues(prev => ({
-          ...prev,
-          fullName: cleanDisplayName,
-          email: signedUser.email || '',
-        }));
-        setNeedsGoogleProfile(true);
-      } else {
-        onSuccess();
-      }
+      // Profile snapshot resolution is handled cleanly in the effect above
     } catch (err) {
+      googleAuthInitiatedRef.current = false;
       setGeneralError(formatAuthError(err));
-    } finally {
       setSubmitting(false);
     }
   };
@@ -284,7 +313,7 @@ export const AuthSection: React.FC<AuthSectionProps> = ({
                           setTab('signin');
                           setGeneralError(null);
                         }}
-                        className={`cursor-pointer rounded-lg py-2 text-xs font-semibold tracking-[0.12em] uppercase transition-all duration-200 active:scale-[0.98] ${
+                        className={`cursor-pointer rounded-lg py-2 text-xs font-semibold tracking-[0.12em] uppercase transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] active:scale-[0.99] ${
                           tab === 'signin'
                             ? 'bg-[#1F1B18] text-[#FAF7F2]'
                             : 'text-[#6E655F] hover:text-[#1F1B18]'
@@ -300,7 +329,7 @@ export const AuthSection: React.FC<AuthSectionProps> = ({
                           setTab('register');
                           setGeneralError(null);
                         }}
-                        className={`cursor-pointer rounded-lg py-2 text-xs font-semibold tracking-[0.12em] uppercase transition-all duration-200 active:scale-[0.98] ${
+                        className={`cursor-pointer rounded-lg py-2 text-xs font-semibold tracking-[0.12em] uppercase transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] active:scale-[0.99] ${
                           tab === 'register'
                             ? 'bg-[#1F1B18] text-[#FAF7F2]'
                             : 'text-[#6E655F] hover:text-[#1F1B18]'
@@ -352,7 +381,7 @@ export const AuthSection: React.FC<AuthSectionProps> = ({
                           <button
                             type="button"
                             onClick={handleGoogleSignIn}
-                            className="flex h-11 w-full cursor-pointer items-center justify-center gap-2.5 rounded-[10px] border border-[#E2D9CE] bg-[#FAF7F2] px-5 text-sm font-medium text-[#1F1B18] transition-all duration-200 hover:border-[#B68D5E] hover:bg-[#FAF7F2]/80 active:scale-[0.985]"
+                            className="flex h-11 w-full cursor-pointer items-center justify-center gap-2.5 rounded-[10px] border border-[#E2D9CE] bg-[#FAF7F2] px-5 text-sm font-medium text-[#1F1B18] transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] hover:border-[#B68D5E] hover:bg-[#FAF7F2]/80 active:scale-[0.99]"
                           >
                             <svg className="h-4 w-4" viewBox="0 0 24 24" aria-hidden="true">
                               <path
@@ -426,7 +455,7 @@ export const AuthSection: React.FC<AuthSectionProps> = ({
 
                             <button
                               type="submit"
-                              className="flex h-11 w-full cursor-pointer items-center justify-center rounded-[10px] border border-[#1F1B18] bg-[#1F1B18] px-6 text-xs font-semibold tracking-[0.14em] text-[#FAF7F2] uppercase transition-all duration-200 hover:bg-[#352F2B] active:scale-[0.985]"
+                              className="flex h-11 w-full cursor-pointer items-center justify-center rounded-[10px] border border-[#1F1B18] bg-[#1F1B18] px-6 text-xs font-semibold tracking-[0.14em] text-[#FAF7F2] uppercase transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-[#352F2B] active:scale-[0.99]"
                             >
                               Sign In with Email
                             </button>
@@ -448,7 +477,7 @@ export const AuthSection: React.FC<AuthSectionProps> = ({
                               <button
                                 type="button"
                                 onClick={handleGoogleSignIn}
-                                className="flex h-11 w-full cursor-pointer items-center justify-center gap-2.5 rounded-[10px] border border-[#E2D9CE] bg-[#FAF7F2] px-5 text-sm font-medium text-[#1F1B18] transition-all duration-200 hover:border-[#B68D5E] hover:bg-[#FAF7F2]/80 active:scale-[0.985]"
+                                className="flex h-11 w-full cursor-pointer items-center justify-center gap-2.5 rounded-[10px] border border-[#E2D9CE] bg-[#FAF7F2] px-5 text-sm font-medium text-[#1F1B18] transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] hover:border-[#B68D5E] hover:bg-[#FAF7F2]/80 active:scale-[0.99]"
                               >
                                 <svg className="h-4 w-4" viewBox="0 0 24 24" aria-hidden="true">
                                   <path
@@ -604,7 +633,7 @@ export const AuthSection: React.FC<AuthSectionProps> = ({
                                 accentColor="#B68D5E"
                                 textColor="#1F1B18"
                                 ariaLabel="Phone country code"
-                                className="w-28 shrink-0 rounded-[10px] border border-[#E2D9CE] sm:w-36"
+                                className="w-28 shrink-0 sm:w-36"
                               />
                               <div className="relative flex-1">
                                 <Phone className="pointer-events-none absolute top-3.5 left-3.5 h-4 w-4 text-[#6E655F]" />
@@ -713,7 +742,7 @@ export const AuthSection: React.FC<AuthSectionProps> = ({
                           <button
                             type="submit"
                             disabled={isUnderage}
-                            className="flex h-11 w-full cursor-pointer items-center justify-center rounded-[10px] border border-[#1F1B18] bg-[#1F1B18] px-6 text-xs font-semibold tracking-[0.14em] text-[#FAF7F2] uppercase transition-all duration-200 hover:bg-[#352F2B] active:scale-[0.985] disabled:cursor-not-allowed disabled:opacity-45"
+                            className="flex h-11 w-full cursor-pointer items-center justify-center rounded-[10px] border border-[#1F1B18] bg-[#1F1B18] px-6 text-xs font-semibold tracking-[0.14em] text-[#FAF7F2] uppercase transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-[#352F2B] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-45"
                           >
                             {needsGoogleProfile ? 'Save Verified Profile' : 'Create Verified Account'}
                           </button>

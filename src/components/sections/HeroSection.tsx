@@ -132,7 +132,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({ onReserveClick }) => {
         {/* Left Editorial Column */}
         <div className="lg:col-span-7">
           <p className="mb-5 text-[11px] font-medium tracking-[0.22em] text-[#6E655F] uppercase sm:text-xs">
-            Beverly Hills · Aesthetic Medicine &amp; Smile Architecture
+            Beverly Hills · Facial Aesthetics &amp; Cosmetic Dentistry
           </p>
 
           <MaskedHeading
@@ -154,7 +154,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({ onReserveClick }) => {
           />
 
           <BlurText
-            text="Non-surgical facial harmonization, ultra-thin porcelain smile design, and cellular skin longevity protocols delivered with quiet clinical restraint."
+            text="Gentle facial balancing, custom porcelain veneers, and restorative skin treatments tailored for comfort and natural-looking results."
             trigger="load"
             delay={35}
             stepDuration={0.32}
@@ -164,33 +164,31 @@ export const HeroSection: React.FC<HeroSectionProps> = ({ onReserveClick }) => {
             className="mt-6 max-w-xl text-base leading-relaxed font-normal sm:text-lg"
           />
 
-          {/* Highlighted Hold-Only Reserve Action + Studio Operating Day & Time */}
+          {/* Reserve Action + Studio Hours */}
           <div className="mt-8 flex w-full max-w-full flex-wrap items-center gap-3 rounded-2xl border border-[#E2D9CE] bg-[#EFE9E0] p-2.5 sm:inline-flex sm:w-auto sm:gap-4 sm:pr-5">
             <HoldButton
               size="lg"
               radius={10}
-              holdTime={850}
+              holdTime={650}
               backgroundColor="#1F1B18"
               fillColor="#B68D5E"
               textColor="#FAF7F2"
               fillTextColor="#FAF7F2"
               glow={false}
-              doneLabel="Opening Concierge"
+              doneLabel="Scrolling down..."
               icon={<ArrowDownRight className="h-4 w-4" />}
               onHold={onReserveClick}
+              onTap={onReserveClick}
               className="w-full text-xs font-medium tracking-[0.04em] sm:w-auto sm:text-sm"
             >
-              Hold to Reserve Consultation
+              Reserve Consultation
             </HoldButton>
 
             <div className="flex items-center gap-2 pl-1">
               <Clock className="h-4 w-4 shrink-0 text-[#B68D5E]" aria-hidden="true" />
-              <div>
-                <p className="text-[11px] font-semibold tracking-[0.14em] text-[#1F1B18] uppercase">
-                  {CLINIC_CONFIG.hoursShort}
-                </p>
-                <p className="text-[11px] text-[#6E655F]">Press &amp; hold to schedule</p>
-              </div>
+              <p className="text-[11px] font-semibold tracking-[0.14em] text-[#1F1B18] uppercase">
+                {CLINIC_CONFIG.hoursShort}
+              </p>
             </div>
           </div>
         </div>
@@ -215,7 +213,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({ onReserveClick }) => {
             onCardClick={handleCardClick}
           />
           <p className="mt-5 text-center text-xs tracking-[0.16em] text-[#6E655F] uppercase lg:text-right">
-            Travertine Lounge · Private Suites · Bespoke Formulations
+            Private Lounge · Calm Treatment Suites · Custom Care
           </p>
         </div>
       </div>

@@ -7,6 +7,7 @@
 import express, { type Express, type Response } from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   ConciergeStore,
   type ConciergeBookingRecord,
@@ -61,14 +62,34 @@ export interface CreateAppResult {
  * Output: Firebase Web API key string, or empty string if unavailable.
  */
 function loadFirebaseApiKey(): string {
+  const candidates = [path.resolve(process.cwd(), 'firebase-applet-config.json')];
   try {
-    const configPath = path.resolve(process.cwd(), 'firebase-applet-config.json');
-    const raw = fs.readFileSync(configPath, 'utf8');
-    const parsed = JSON.parse(raw) as FirebaseAppletConfig;
-    return parsed.apiKey?.trim() || '';
+    const moduleDir =
+      typeof __dirname !== 'undefined'
+        ? __dirname
+        : typeof import.meta !== 'undefined' && import.meta.url
+          ? path.dirname(fileURLToPath(import.meta.url))
+          : null;
+    if (moduleDir) {
+      candidates.push(path.resolve(moduleDir, '../../firebase-applet-config.json'));
+      candidates.push(path.resolve(moduleDir, '../firebase-applet-config.json'));
+    }
   } catch {
-    return '';
+    // Fallback to process.cwd() candidate only
   }
+  for (const configPath of candidates) {
+    try {
+      if (!fs.existsSync(configPath)) continue;
+      const raw = fs.readFileSync(configPath, 'utf8');
+      const parsed = JSON.parse(raw) as FirebaseAppletConfig;
+      if (parsed.apiKey?.trim()) {
+        return parsed.apiKey.trim();
+      }
+    } catch {
+      // Try next candidate path
+    }
+  }
+  return '';
 }
 
 /**

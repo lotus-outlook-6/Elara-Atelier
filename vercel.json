@@ -1,14 +1,19 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "vite build",
+  "buildCommand": "vite build && npm run build:api",
   "outputDirectory": "dist",
+  "functions": {
+    "api/index.cjs": {
+      "includeFiles": "firebase-applet-config.json"
+    }
+  },
   "rewrites": [
     {
       "source": "/api/(.*)",
-      "destination": "/api/index.ts"
+      "destination": "/api/index.cjs"
     },
     {
-      "source": "/((?!api/).*)",
+      "source": "/((?!api/|assets/|favicon\\.svg|favicon\\.png|favicon\\.ico).*)",
       "destination": "/index.html"
     }
   ]

@@ -37,10 +37,13 @@ function AtelierShell() {
   const {
     user,
     userPhotoUrl,
+    authReady,
     profile,
+    profileLoading,
     bookings,
     botSyncNotice,
     clearBotSyncNotice,
+    redirectAuthError,
     signOutUser,
   } = useAuth();
 
@@ -73,6 +76,45 @@ function AtelierShell() {
     });
     clearBotSyncNotice();
   }, [botSyncNotice, clearBotSyncNotice]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    let pending = false;
+    try {
+      pending = window.sessionStorage.getItem('elara_google_redirect_pending') === '1';
+    } catch {
+      pending = false;
+    }
+    if (!pending) return;
+
+    if (redirectAuthError) {
+      try {
+        window.sessionStorage.removeItem('elara_google_redirect_pending');
+      } catch {
+        // Ignore storage error
+      }
+      setActiveView('auth');
+      return;
+    }
+
+    if (authReady && user && !profileLoading) {
+      try {
+        window.sessionStorage.removeItem('elara_google_redirect_pending');
+      } catch {
+        // Ignore storage error
+      }
+      if (profile) {
+        setActiveView('profile');
+        setToast({
+          open: true,
+          title: 'Welcome Back',
+          description: 'Your patient profile and calendar are ready.',
+        });
+      } else {
+        setActiveView('auth');
+      }
+    }
+  }, [authReady, user, profile, profileLoading, redirectAuthError]);
 
   /**
    * Show SwipeToast confirmation notification.
@@ -223,7 +265,11 @@ function AtelierShell() {
                   selectedTreatmentId={selectedTreatmentId}
                   onSelectTreatment={setSelectedTreatmentId}
                 />
-                <BeforeAfterSection />
+                <BeforeAfterSection
+                  selectedTreatmentId={selectedTreatmentId}
+                  onSelectTreatment={setSelectedTreatmentId}
+                  onProceedToBook={scrollToBooking}
+                />
                 <TestimonialsSection />
                 <BookingSection
                   selectedTreatmentId={selectedTreatmentId}

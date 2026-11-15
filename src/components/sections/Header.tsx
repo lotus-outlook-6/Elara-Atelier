@@ -77,15 +77,20 @@ export const Header: React.FC<HeaderProps> = ({
       }`}
     >
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-2 px-3.5 sm:gap-4 sm:px-8 md:h-20 2xl:max-w-[1440px]">
-        {/* Zone 1: Brand Wordmark */}
+        {/* Zone 1: Brand Emblem + Wordmark */}
         <a
           href="#top"
           onClick={() => {
             if (activeView !== 'studio') onReturnStudio();
           }}
-          className="font-serif text-sm font-semibold tracking-[0.12em] whitespace-nowrap shrink-0 text-[#1F1B18] no-underline sm:text-xl sm:tracking-[0.18em]"
+          className="inline-flex shrink-0 items-center gap-1.5 font-serif text-[13px] font-semibold tracking-[0.09em] whitespace-nowrap text-[#1F1B18] no-underline sm:gap-2.5 sm:text-xl sm:tracking-[0.18em]"
         >
-          {CLINIC_CONFIG.brandName}
+          <img
+            src="/elara-logo.png"
+            alt="Elara Atelier emblem"
+            className="h-7 w-7 shrink-0 object-contain sm:h-9 sm:w-9"
+          />
+          <span>{CLINIC_CONFIG.brandName}</span>
         </a>
 
         {/* Zone 2: Desktop Anchor Navigation */}
@@ -109,7 +114,7 @@ export const Header: React.FC<HeaderProps> = ({
               <button
                 type="button"
                 onClick={activeView === 'profile' ? onReturnStudio : onOpenProfile}
-                className={`inline-flex h-9 cursor-pointer items-center gap-2 rounded-lg border pr-3 pl-1.5 text-xs font-semibold tracking-[0.1em] whitespace-nowrap uppercase transition-all duration-200 active:scale-[0.97] ${
+                className={`inline-flex h-9 cursor-pointer items-center gap-2 rounded-lg border pr-3 pl-1.5 text-xs font-semibold tracking-[0.1em] whitespace-nowrap uppercase transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] active:scale-[0.99] ${
                   activeView === 'profile'
                     ? 'border-[#B68D5E] bg-[#EFE9E0] text-[#1F1B18]'
                     : 'border-[#E2D9CE] bg-[#FAF7F2] text-[#1F1B18] hover:bg-[#EFE9E0]'
@@ -124,7 +129,7 @@ export const Header: React.FC<HeaderProps> = ({
                 onClick={onSignOut}
                 aria-label="Sign out"
                 title="Sign out"
-                className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg border border-[#E2D9CE] bg-[#FAF7F2] text-[#6E655F] transition-all duration-200 hover:bg-[#EFE9E0] hover:text-[#1F1B18] active:scale-[0.97]"
+                className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg border border-[#E2D9CE] bg-[#FAF7F2] text-[#6E655F] transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-[#EFE9E0] hover:text-[#1F1B18] active:scale-[0.99]"
               >
                 <LogOut className="h-3.5 w-3.5" aria-hidden="true" />
               </button>
@@ -133,7 +138,7 @@ export const Header: React.FC<HeaderProps> = ({
             <button
               type="button"
               onClick={activeView === 'auth' ? onReturnStudio : onOpenAuth}
-              className={`hidden h-9 cursor-pointer items-center gap-1.5 rounded-lg border px-3.5 text-xs font-semibold tracking-[0.12em] whitespace-nowrap uppercase transition-all duration-200 active:scale-[0.97] sm:inline-flex ${
+              className={`hidden h-9 cursor-pointer items-center gap-1.5 rounded-lg border px-3.5 text-xs font-semibold tracking-[0.12em] whitespace-nowrap uppercase transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] active:scale-[0.99] sm:inline-flex ${
                 activeView === 'auth'
                   ? 'border-[#B68D5E] bg-[#EFE9E0] text-[#1F1B18]'
                   : 'border-[#E2D9CE] bg-[#FAF7F2] text-[#1F1B18] hover:border-[#B68D5E] hover:bg-[#EFE9E0]'
@@ -158,9 +163,10 @@ export const Header: React.FC<HeaderProps> = ({
               textColor="#FAF7F2"
               fillTextColor="#FAF7F2"
               glow={false}
-              doneLabel="Opening..."
+              doneLabel="Scrolling down..."
               onHold={onBookClick}
-              className="text-[11px] tracking-[0.08em] uppercase sm:text-xs sm:tracking-[0.1em]"
+              onTap={onBookClick}
+              className="!h-8 !px-3 text-[10px] tracking-[0.06em] uppercase sm:!h-9 sm:!px-4 sm:text-xs sm:tracking-[0.1em]"
             >
               Book Visit
             </HoldButton>

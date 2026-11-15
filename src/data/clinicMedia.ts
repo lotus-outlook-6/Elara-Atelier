@@ -1,14 +1,13 @@
 /**
  * Local Vite image asset imports for Elara Atelier editorial photography,
- * treatment showcase cards, testimonial previews, concierge lounge,
- * heading stone texture, and clinical Before/After comparison frames.
+ * 12 unique treatment catalog cards, testimonial previews, concierge lounge,
+ * heading stone texture, and per-treatment Before/After comparison frames.
  */
 
 import interiorImg from '../assets/images/atelier_card_interior_1794636246346.jpg';
 import skincareImg from '../assets/images/atelier_card_skincare_1794636245762.jpg';
 import dentalImg from '../assets/images/atelier_card_dental_1794636245324.jpg';
 import portraitImg from '../assets/images/atelier_card_portrait_1794636245977.jpg';
-import afterSmileImg from '../assets/images/result_after_smile_1794636246977.jpg';
 import espressoTextureImg from '../assets/images/heading_espresso_texture_1794636246846.jpg';
 import facialBalancingImg from '../assets/images/treatment_facial_balancing_1794640182845.jpg';
 import dentalVeneersImg from '../assets/images/treatment_dental_veneers_1794640184067.jpg';
@@ -20,6 +19,36 @@ import wrinkleTreatmentServiceImg from '../assets/images/clinic_wrinkle_treatmen
 import teethWhiteningServiceImg from '../assets/images/dental_laser_whitening_1794644488609.jpg';
 import clearAlignersServiceImg from '../assets/images/dental_clear_aligners_1794644488989.jpg';
 import skinLaserFacialServiceImg from '../assets/images/skin_laser_facial_1794644489788.jpg';
+
+// Newly generated treatment-accurate catalog photography
+import lipShapingServiceImg from '../assets/images/catalog_lip_shaping_1794754130443.jpg';
+import collagenFirmingServiceImg from '../assets/images/catalog_collagen_firming_1794754131691.jpg';
+import underEyeRenewalServiceImg from '../assets/images/catalog_undereye_renewal_1794754132479.jpg';
+import rfMicroneedlingServiceImg from '../assets/images/catalog_rf_microneedling_1794754132497.jpg';
+import laserToningServiceImg from '../assets/images/catalog_laser_toning_1794754133022.jpg';
+
+// Pixel-aligned clinical Before & After pairs for every service
+import beforeCheekJawlineImg from '../assets/images/before_cheek_jawline_1794754169616.jpg';
+import afterCheekJawlineImg from '../assets/images/after_cheek_jawline_1794754133975.jpg';
+import beforeForeheadSmoothImg from '../assets/images/before_forehead_smooth_1794754317668.jpg';
+import afterForeheadSmoothImg from '../assets/images/after_forehead_smooth_1794754135402.jpg';
+import beforeLipShapingImg from '../assets/images/before_lip_shaping_1794754319018.jpg';
+import afterLipShapingImg from '../assets/images/after_lip_shaping_1794754135431.jpg';
+import beforeCollagenFirmingImg from '../assets/images/before_collagen_firming_1794754319854.jpg';
+import afterCollagenFirmingImg from '../assets/images/after_collagen_firming_1794754135128.jpg';
+import beforeSmilePreviewImg from '../assets/images/before_smile_preview_1794754321672.jpg';
+import afterSmilePreviewImg from '../assets/images/after_smile_preview_1794754136236.jpg';
+import beforeAlignersTeethImg from '../assets/images/before_aligners_teeth_1794754341073.jpg';
+import afterAlignersTeethImg from '../assets/images/after_aligners_teeth_1794754135183.jpg';
+import beforeUnderEyeImg from '../assets/images/before_undereye_renewal_1794754320477.jpg';
+import afterUnderEyeImg from '../assets/images/after_undereye_renewal_1794754136796.jpg';
+import beforeMicroneedlingCheekImg from '../assets/images/before_microneedling_cheek_1794754322235.jpg';
+import afterMicroneedlingCheekImg from '../assets/images/after_microneedling_cheek_1794754176696.jpg';
+import beforeLaserToningImg from '../assets/images/before_laser_toning_1794754175076.jpg';
+import afterLaserToningImg from '../assets/images/after_laser_toning_1794754137324.jpg';
+import beforeCoolingSculptImg from '../assets/images/before_cooling_sculpt_1794754178686.jpg';
+import afterCoolingSculptImg from '../assets/images/after_cooling_sculpt_1794754138867.jpg';
+
 import type { ComparisonCase } from './clinicData';
 
 export interface MediaAsset {
@@ -32,56 +61,56 @@ export const HERO_HEADING_TEXTURE = espressoTextureImg;
 
 export const CONCIERGE_SUITE_MEDIA: MediaAsset = {
   src: conciergeSuiteImg,
-  alt: 'Elara Atelier sculpted travertine arches and sunlit sanctuary lounge in Beverly Hills',
+  alt: 'Elara Atelier sunlit stone lounge in Beverly Hills',
 };
 
 export const HERO_BOUNCE_CARDS: MediaAsset[] = [
   {
     src: interiorImg,
-    alt: 'Elara Atelier travertine reception lounge bathed in morning light',
+    alt: 'Elara Atelier reception lounge bathed in morning light',
   },
   {
     src: skincareImg,
-    alt: 'Clinical botanical longevity serum formulation on travertine stone',
+    alt: 'Gentle restorative skin serums on natural stone',
   },
   {
     src: dentalImg,
-    alt: 'Private sunlit cosmetic dental suite with walnut and brass finishes',
+    alt: 'Private sunlit cosmetic dental suite with warm walnut finishes',
   },
   {
     src: portraitImg,
-    alt: 'Patient portrait displaying natural facial harmony and luminous skin',
+    alt: 'Patient portrait displaying natural facial balance and healthy skin',
   },
 ];
 
 export const TREATMENT_MEDIA: Record<string, MediaAsset> = {
   'fa-contouring': {
     src: cheekContouringServiceImg,
-    alt: 'Aesthetic doctor gently marking natural cheekbone and jawline proportion on a patient in clinic',
+    alt: 'Doctor gently marking cheekbone and jawline balance on a patient in clinic',
     objectPosition: 'object-[50%_20%]',
   },
   'fa-neuromodulator': {
     src: wrinkleTreatmentServiceImg,
-    alt: 'Aesthetic specialist performing a gentle forehead and brow wrinkle smoothing treatment',
+    alt: 'Specialist performing a gentle forehead and brow wrinkle smoothing treatment',
     objectPosition: 'object-[50%_20%]',
   },
   'fa-lip-architecture': {
-    src: portraitImg,
-    alt: 'Patient displaying soft, naturally balanced lip shaping and hydration',
+    src: lipShapingServiceImg,
+    alt: 'Doctor consulting and measuring balanced lip hydration and shape with a patient',
     objectPosition: 'object-[50%_20%]',
   },
   'fa-biostimulator': {
-    src: skinLaserFacialServiceImg,
-    alt: 'Skin specialist performing a non-surgical collagen firming procedure in a sunlit suite',
+    src: collagenFirmingServiceImg,
+    alt: 'Doctor checking cheek firmness and lower facial support with a smiling patient',
     objectPosition: 'object-[50%_20%]',
   },
   'cd-veneers': {
     src: dentalVeneersImg,
-    alt: 'Custom ultra-thin porcelain veneers arranged on a walnut shade tray for smile restoration',
+    alt: 'Custom ultra-thin porcelain veneers arranged on a shade tray for smile restoration',
   },
   'cd-smile-design': {
     src: smileScanImg,
-    alt: 'Cosmetic 3D digital mouth scanner used to preview tooth proportions before treatment',
+    alt: 'Painless 3D mouth scanner showing a digital preview of tooth alignment',
   },
   'cd-whitening': {
     src: teethWhiteningServiceImg,
@@ -90,37 +119,37 @@ export const TREATMENT_MEDIA: Record<string, MediaAsset> = {
   },
   'cd-aligners': {
     src: clearAlignersServiceImg,
-    alt: 'Cosmetic dentist fitting crystal-clear orthodontic aligner trays alongside a 3D teeth arch model',
+    alt: 'Cosmetic dentist fitting clear removable orthodontic aligner trays alongside a teeth model',
   },
   'sl-polynucleotide': {
-    src: wrinkleTreatmentServiceImg,
-    alt: 'Clinician performing an under-eye skin repair micro-infusion in a private treatment room',
+    src: underEyeRenewalServiceImg,
+    alt: 'Clinician gently treating dark circles and fine lines beneath the eyes',
     objectPosition: 'object-[50%_25%]',
   },
   'sl-microneedling': {
-    src: skinLaserFacialServiceImg,
-    alt: 'Skin specialist gliding an RF microneedling device across a patient cheek for pore and texture renewal',
+    src: rfMicroneedlingServiceImg,
+    alt: 'Skin specialist gliding a gold-tipped RF microneedling handpiece gently across a cheek',
     objectPosition: 'object-[50%_25%]',
   },
   'sl-laser-toning': {
-    src: cheekContouringServiceImg,
-    alt: 'Specialist preparing a patient face for an even-tone sun-spot laser facial session',
+    src: laserToningServiceImg,
+    alt: 'Patient wearing protective eyewear during a gentle sun-spot laser facial session',
     objectPosition: 'object-[50%_20%]',
   },
   'sl-barrier-infusion': {
     src: skinLongevityImg,
-    alt: 'Sculpted cooling cryo wands and clinical soothing setup for lymphatic facial therapy',
+    alt: 'Cooling cryo facial wands prepared for calming puffiness and hydrating sensitive skin',
   },
 };
 
 export const TESTIMONIAL_MEDIA: Record<string, MediaAsset> = {
   't-camille': {
     src: dentalVeneersImg,
-    alt: 'Porcelain veneer shade selection tray prepared for bespoke smile restoration',
+    alt: 'Porcelain veneer shade tray prepared for smile restoration',
   },
   't-julian': {
     src: facialBalancingImg,
-    alt: 'Facial proportion architecture instruments inside private consultation suite',
+    alt: 'Facial measuring tools inside a private consultation suite',
   },
   't-elena': {
     src: skinLaserFacialServiceImg,
@@ -133,15 +162,195 @@ const CLEAN_SMILE_PHOTO = '/assets/aistudio/Radiant_Professional_Smile_Close-Up_
 
 export const COMPARISON_CASES: ComparisonCase[] = [
   {
-    id: 'porcelain-veneers',
-    title: 'Brighter, Even Smile Results',
-    treatment: 'Porcelain Veneers (8 Front Teeth)',
-    timeframe: '1–2 Visits · Up to 14 Days',
+    id: 'cheek-jawline',
+    treatmentId: 'fa-contouring',
+    categoryLabel: 'Facial Results',
+    title: 'Lifted Cheeks & Defined Jawline',
+    treatment: 'Cheek & Jawline Contouring',
+    timeframe: '45 min visit · Immediate Result',
+    startingPrice: '$1,150',
+    retouchMode: 'pair',
     beforeLabel: 'Before',
-    afterLabel: 'After',
+    afterLabel: 'After Contouring',
+    beforeSrc: beforeCheekJawlineImg,
+    afterSrc: afterCheekJawlineImg,
+    summary:
+      'Subtle structural filler adds gentle lift under the cheekbones and sharpens the jawline while keeping your natural side profile completely authentic.',
+  },
+  {
+    id: 'forehead-wrinkles',
+    treatmentId: 'fa-neuromodulator',
+    categoryLabel: 'Facial Results',
+    title: 'Smoother Forehead & Relaxed Brows',
+    treatment: 'Wrinkle Relaxing Injections',
+    timeframe: '30 min visit · Results in 5–7 Days',
+    startingPrice: '$480',
+    retouchMode: 'pair',
+    beforeLabel: 'Before',
+    afterLabel: 'After Treatment',
+    beforeSrc: beforeForeheadSmoothImg,
+    afterSrc: afterForeheadSmoothImg,
+    summary:
+      'Small targeted injections soften horizontal forehead lines and frown creases between the brows so you look rested without losing natural expressions.',
+  },
+  {
+    id: 'lip-shaping',
+    treatmentId: 'fa-lip-architecture',
+    categoryLabel: 'Facial Results',
+    title: 'Soft, Hydrated & Balanced Lips',
+    treatment: 'Natural Lip Shaping & Hydration',
+    timeframe: '40 min visit · Minimal Downtime',
+    startingPrice: '$790',
+    retouchMode: 'pair',
+    beforeLabel: 'Before',
+    afterLabel: 'After Lip Shaping',
+    beforeSrc: beforeLipShapingImg,
+    afterSrc: afterLipShapingImg,
+    summary:
+      'Smooth hyaluronic lip filler gently restores border definition, smooths vertical dry lines, and adds subtle natural volume tailored to your face.',
+  },
+  {
+    id: 'collagen-firming',
+    treatmentId: 'fa-biostimulator',
+    categoryLabel: 'Facial Results',
+    title: 'Firmer Lower Face & Softer Smile Folds',
+    treatment: 'Collagen Skin-Firming Session',
+    timeframe: '50 min visit · Builds Over 4–8 Weeks',
+    startingPrice: '$1,450',
+    retouchMode: 'pair',
+    beforeLabel: 'Before',
+    afterLabel: 'After Collagen Boost',
+    beforeSrc: beforeCollagenFirmingImg,
+    afterSrc: afterCollagenFirmingImg,
+    summary:
+      'Helps your own skin rebuild fresh collagen to soften deeper smile folds and gently tighten lower cheeks and jawline skin without surgery.',
+  },
+  {
+    id: 'porcelain-veneers',
+    treatmentId: 'cd-veneers',
+    categoryLabel: 'Smile Results',
+    title: 'Brighter, Even Smile Results',
+    treatment: 'Porcelain Veneers (Smile Makeover)',
+    timeframe: '1–2 Visits · Up to 14 Days',
+    startingPrice: '$1,950 / tooth',
+    retouchMode: 'teeth',
+    beforeLabel: 'Before',
+    afterLabel: 'After Veneers',
     beforeSrc: CLEAN_SMILE_PHOTO,
     afterSrc: CLEAN_SMILE_PHOTO,
     summary:
-      'Ultra-thin custom porcelain layers cover chips, gaps, and deep stains—giving you a naturally brighter, even smile without shaving down your real teeth.',
+      'Ultra-thin custom porcelain shells cover chips, gaps, and deep stains—giving you a naturally brighter, even smile.',
+  },
+  {
+    id: 'digital-smile-preview',
+    treatmentId: 'cd-smile-design',
+    categoryLabel: 'Smile Results',
+    title: 'See Your New Smile Before You Start',
+    treatment: '3D Digital Smile Preview',
+    timeframe: '60 min visit · Same-Day Preview',
+    startingPrice: '$420',
+    retouchMode: 'pair',
+    beforeLabel: '3D Scan Blueprint',
+    afterLabel: 'Finished Smile',
+    beforeSrc: beforeSmilePreviewImg,
+    afterSrc: afterSmilePreviewImg,
+    summary:
+      'A gentle 3D mouth scan maps tooth proportions digitally so you can preview and approve your exact smile shape before any dental work begins.',
+  },
+  {
+    id: 'laser-whitening',
+    treatmentId: 'cd-whitening',
+    categoryLabel: 'Smile Results',
+    title: 'Single-Visit Laser Teeth Whitening',
+    treatment: 'In-Chair Laser Teeth Whitening',
+    timeframe: '75 min visit · Same-Day Brightening',
+    startingPrice: '$690',
+    retouchMode: 'teeth',
+    beforeLabel: 'Before',
+    afterLabel: 'After Whitening',
+    beforeSrc: CLEAN_SMILE_PHOTO,
+    afterSrc: CLEAN_SMILE_PHOTO,
+    summary:
+      'Dentist-guided LED laser whitening gently lifts years of coffee, tea, and wine stains in a single 75-minute visit while protecting gum comfort.',
+  },
+  {
+    id: 'clear-aligners',
+    treatmentId: 'cd-aligners',
+    categoryLabel: 'Smile Results',
+    title: 'Straighter Teeth Without Metal Braces',
+    treatment: 'Clear Orthodontic Aligners',
+    timeframe: '4–8 months · Removable Trays',
+    startingPrice: '$4,200',
+    retouchMode: 'pair',
+    beforeLabel: 'Before Aligners',
+    afterLabel: 'After Alignment',
+    beforeSrc: beforeAlignersTeethImg,
+    afterSrc: afterAlignersTeethImg,
+    summary:
+      'Custom transparent trays gently close front gaps and align rotated teeth discreetly, fitted and tracked directly by our dental team.',
+  },
+  {
+    id: 'undereye-renewal',
+    treatmentId: 'sl-polynucleotide',
+    categoryLabel: 'Skin Results',
+    title: 'Brighter, Well-Rested Under-Eyes',
+    treatment: 'Under-Eye Renewal Treatment',
+    timeframe: '45 min visit · Minimal Downtime',
+    startingPrice: '$880',
+    retouchMode: 'pair',
+    beforeLabel: 'Before',
+    afterLabel: 'After Under-Eye Care',
+    beforeSrc: beforeUnderEyeImg,
+    afterSrc: afterUnderEyeImg,
+    summary:
+      'Targets dark under-eye shadows, delicate crepey lines, and mild hollowness to leave the eye area noticeably smoother and fresher.',
+  },
+  {
+    id: 'rf-microneedling',
+    treatmentId: 'sl-microneedling',
+    categoryLabel: 'Skin Results',
+    title: 'Tighter Pores & Smoother Acne Scars',
+    treatment: 'RF Microneedling Skin Tightening',
+    timeframe: '60 min visit · Progressive Glow',
+    startingPrice: '$1,050',
+    retouchMode: 'pair',
+    beforeLabel: 'Before',
+    afterLabel: 'After Microneedling',
+    beforeSrc: beforeMicroneedlingCheekImg,
+    afterSrc: afterMicroneedlingCheekImg,
+    summary:
+      'Fine needles with gentle warmth smooth textured acne scars, shrink visible cheek pores, and tighten surface skin tone.',
+  },
+  {
+    id: 'laser-toning',
+    treatmentId: 'sl-laser-toning',
+    categoryLabel: 'Skin Results',
+    title: 'Clearer Skin Free of Sun Spots',
+    treatment: 'Tone & Sun-Spot Laser Facial',
+    timeframe: '45 min visit · Zero Downtime',
+    startingPrice: '$650',
+    retouchMode: 'pair',
+    beforeLabel: 'Before',
+    afterLabel: 'After Laser Facial',
+    beforeSrc: beforeLaserToningImg,
+    afterSrc: afterLaserToningImg,
+    summary:
+      'Gentle pigment-targeting laser energy fades brown sun spots, freckles, and patchy discoloration to restore clear, even skin tone.',
+  },
+  {
+    id: 'cooling-sculpt-facial',
+    treatmentId: 'sl-barrier-infusion',
+    categoryLabel: 'Skin Results',
+    title: 'Calmed Redness & Sculpted Glow',
+    treatment: 'Sculpting Facial & Cooling Therapy',
+    timeframe: '75 min visit · Instant Refresh',
+    startingPrice: '$490',
+    retouchMode: 'pair',
+    beforeLabel: 'Before',
+    afterLabel: 'After Cooling Facial',
+    beforeSrc: beforeCoolingSculptImg,
+    afterSrc: afterCoolingSculptImg,
+    summary:
+      'Hands-on sculpting massage paired with chilled cooling tools visibly calms cheek flushing, reduces puffiness, and deeply hydrates skin.',
   },
 ];

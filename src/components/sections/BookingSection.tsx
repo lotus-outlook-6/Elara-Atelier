@@ -337,14 +337,14 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
         <div className="flex flex-col justify-between gap-6 lg:flex-row lg:items-end">
           <div className="max-w-2xl">
             <p className="text-[11px] font-semibold tracking-[0.22em] text-[#B68D5E] uppercase">
-              Private Concierge
+              Appointments
             </p>
             <h2 className="mt-3 font-serif text-3xl leading-[1.12] font-semibold tracking-tight text-[#1F1B18] sm:text-4xl lg:text-5xl">
               Schedule Your Studio Visit
             </h2>
             <p className="mt-3 text-base leading-relaxed text-[#6E655F]">
-              Reserve a dedicated Beverly Hills clinical suite. Receive instant Telegram bot or
-              WhatsApp coordination, and edit bookings in your Profile for 4 hours.
+              Choose your treatment and preferred time below. Receive instant updates via Telegram
+              or WhatsApp, and make free changes in your Profile for 4 hours.
             </p>
           </div>
 
@@ -366,7 +366,7 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
                         Consultation Request
                       </h3>
                       <p className="mt-1 text-xs tracking-[0.14em] text-[#6E655F] uppercase">
-                        18+ Patient Verification · 4-Hour Editable Window
+                        Adults 18+ · Free changes for 4 hours
                       </p>
                     </div>
                     {!user ? (
@@ -401,13 +401,13 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
                         cellSize={8}
                         gap={4}
                         fontSize={15}
-                        label="Reserving your private suite"
+                        label="Reserving your visit"
                         doneLabel="Confirmed"
                         showTimer={true}
                         className="text-[#1F1B18]"
                       />
                       <p className="max-w-sm text-sm text-[#6E655F]">
-                        Preparing your concierge itinerary for {activeTreatment?.name}.
+                        Saving your appointment details for {activeTreatment?.name}.
                       </p>
                     </div>
                   ) : status === 'confirmed' && confirmedDetails ? (
@@ -426,10 +426,10 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
                             </h4>
                             <p className="mt-1 text-sm text-[#6E655F]">
                               {confirmedMeta?.status === 'cancelled'
-                                ? 'This visit was cancelled from your Telegram concierge chat.'
+                                ? 'This visit was cancelled from your Telegram chat.'
                                 : confirmedMeta?.savedToProfile
                                   ? 'Saved to your Profile & Calendar. You may edit or cancel this visit for the next 4 hours.'
-                                  : 'Your concierge request is ready. Connect with our Telegram bot or WhatsApp below.'}
+                                  : 'Your request is ready. Message us on Telegram or WhatsApp below.'}
                             </p>
                           </div>
                         </div>
@@ -479,7 +479,7 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
                           href={confirmedMeta?.telegramDeepLink}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-[10px] border border-[#1F1B18] bg-[#1F1B18] px-5 text-sm font-medium text-[#FAF7F2] no-underline transition-all duration-200 hover:bg-[#352F2B] active:scale-[0.985] sm:w-auto"
+                          className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-[10px] border border-[#1F1B18] bg-[#1F1B18] px-5 text-sm font-medium text-[#FAF7F2] no-underline transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-[#352F2B] active:scale-[0.99] sm:w-auto"
                         >
                           <Send className="h-4 w-4 text-[#B68D5E]" aria-hidden="true" />
                           Open Telegram Bot (@{telegramStatus.botUsername})
@@ -489,7 +489,7 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
                           href={whatsappUrl}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-[10px] border border-[#E2D9CE] bg-[#FAF7F2] px-5 text-sm font-medium text-[#1F1B18] no-underline transition-all duration-200 hover:border-[#B68D5E] hover:bg-[#E5DACB]/40 active:scale-[0.985] sm:w-auto"
+                          className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-[10px] border border-[#E2D9CE] bg-[#FAF7F2] px-5 text-sm font-medium text-[#1F1B18] no-underline transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] hover:border-[#B68D5E] hover:bg-[#E5DACB]/40 active:scale-[0.99] sm:w-auto"
                         >
                           <MessageCircle className="h-4 w-4 text-[#B68D5E]" aria-hidden="true" />
                           Send via WhatsApp
@@ -641,7 +641,7 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
                             accentColor="#B68D5E"
                             textColor="#1F1B18"
                             ariaLabel="Booking phone country code"
-                            className="w-28 shrink-0 rounded-[10px] border border-[#E2D9CE] sm:w-36"
+                            className="w-28 shrink-0 sm:w-36"
                           />
                           <input
                             id="booking-phone"
@@ -728,7 +728,7 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
                             accentColor="#B68D5E"
                             textColor="#1F1B18"
                             ariaLabel="Treatment Selection"
-                            className="w-full rounded-[10px] border border-[#E2D9CE]"
+                            className="w-full"
                           />
                           {errors.treatmentId ? (
                             <p className="mt-1.5 text-xs text-[#9E3B33]" role="alert">
@@ -761,11 +761,11 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
                         </div>
                       </div>
 
-                      {/* Highlighted SlideCommit + Clinic Day & Time */}
+                      {/* Confirm Appointment Action */}
                       <div className="rounded-xl border border-[#E2D9CE] bg-[#FAF7F2] p-4">
                         <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs">
                           <span className="font-semibold tracking-[0.14em] text-[#1F1B18] uppercase">
-                            Book Visit Window
+                            Confirm Your Booking
                           </span>
                           <span className="inline-flex items-center gap-1.5 font-medium text-[#6E655F]">
                             <Clock className="h-3.5 w-3.5 text-[#B68D5E]" />
@@ -788,10 +788,6 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
                             holdMs={900}
                           />
                         </div>
-                        <p className="mt-2.5 text-xs text-[#6E655F]">
-                          Drag slider or press <kbd className="font-mono text-[#1F1B18]">End</kbd> on
-                          focused handle to submit.
-                        </p>
                       </div>
                     </form>
                   )}
@@ -802,19 +798,19 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
                     <p className="font-semibold tracking-[0.12em] text-[#1F1B18] uppercase">
                       4-Hour Edits
                     </p>
-                    <p className="mt-0.5">Modify in Profile up to 4h after booking</p>
+                    <p className="mt-0.5">Update or cancel up to 4 hours after booking</p>
                   </div>
                   <div>
                     <p className="font-semibold tracking-[0.12em] text-[#1F1B18] uppercase">
                       Telegram Alerts
                     </p>
-                    <p className="mt-0.5">Instant @{telegramStatus.botUsername} summary</p>
+                    <p className="mt-0.5">Instant @{telegramStatus.botUsername} updates</p>
                   </div>
                   <div>
                     <p className="font-semibold tracking-[0.12em] text-[#1F1B18] uppercase">
-                      18+ Verified
+                      Adults 18+
                     </p>
-                    <p className="mt-0.5">Adult clinical &amp; aesthetic care</p>
+                    <p className="mt-0.5">Adult clinical &amp; cosmetic care</p>
                   </div>
                 </div>
               </div>
@@ -883,7 +879,7 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
               <div className="border-t border-[#E2D9CE] pt-5">
                 <a
                   href={CLINIC_CONFIG.phoneHref}
-                  className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-[10px] border border-[#E2D9CE] bg-[#FAF7F2] px-5 text-sm font-medium text-[#1F1B18] no-underline transition-all duration-200 hover:border-[#B68D5E] hover:bg-[#E5DACB]/35 active:scale-[0.985]"
+                  className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-[10px] border border-[#E2D9CE] bg-[#FAF7F2] px-5 text-sm font-medium text-[#1F1B18] no-underline transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] hover:border-[#B68D5E] hover:bg-[#E5DACB]/35 active:scale-[0.99]"
                 >
                   <Phone className="h-4 w-4 text-[#B68D5E]" aria-hidden="true" />
                   Call Clinic · {CLINIC_CONFIG.phoneDisplay}
