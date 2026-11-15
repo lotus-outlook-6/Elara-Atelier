@@ -10,6 +10,7 @@ import {
   Calendar,
   CheckCircle2,
   Clock,
+  ExternalLink,
   MapPin,
   MessageCircle,
   Phone,
@@ -27,6 +28,7 @@ import {
   formatPreferredDateTime,
   getTreatmentById,
   resolveEffectiveTelegram,
+  resolveEffectiveWhatsApp,
   sanitizeNameInput,
   sanitizePhoneDigits,
   validateBookingForm,
@@ -36,6 +38,7 @@ import AtelierDatePicker from '../reactbits/AtelierDatePicker';
 import GlideSelect, { type GlideSelectOption } from '../reactbits/GlideSelect';
 import LatticeLoader from '../reactbits/LatticeLoader';
 import SlideCommit from '../reactbits/SlideCommit';
+import StudioMap from '../ui/StudioMap';
 
 export interface BookingSectionProps {
   selectedTreatmentId: string;
@@ -63,10 +66,13 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
     fullName: '',
     phoneCountryCode: '+1',
     phoneNumber: '',
+    whatsappSameAsPhone: true,
+    whatsappCountryCode: '+1',
+    whatsappNumber: '',
     dob: '',
     treatmentId: selectedTreatmentId || TREATMENTS[0].id,
     preferredDateTime: DEFAULT_DATETIME,
-    telegramSameAsPhone: false,
+    telegramSameAsPhone: true,
     telegramMethod: 'username',
     telegramValue: '',
   });
@@ -129,11 +135,21 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
     const matchesProfilePhone =
       profile.telegramMethod === 'phone' &&
       profile.telegramValue === `${profile.phoneCountryCode}${profile.phoneNumber}`;
+    const hasSeparateWhatsApp =
+      Boolean(profile.whatsappNumber) &&
+      (profile.whatsappNumber !== profile.phoneNumber ||
+        (profile.whatsappCountryCode && profile.whatsappCountryCode !== profile.phoneCountryCode));
+
     setValues(prev => ({
       ...prev,
       fullName: prev.fullName || profile.fullName,
       phoneCountryCode: prev.phoneNumber ? prev.phoneCountryCode : profile.phoneCountryCode,
       phoneNumber: prev.phoneNumber || profile.phoneNumber,
+      whatsappSameAsPhone: prev.whatsappNumber ? prev.whatsappSameAsPhone : !hasSeparateWhatsApp,
+      whatsappCountryCode: prev.whatsappNumber
+        ? prev.whatsappCountryCode
+        : profile.whatsappCountryCode || profile.phoneCountryCode,
+      whatsappNumber: prev.whatsappNumber || (hasSeparateWhatsApp ? profile.whatsappNumber || '' : ''),
       dob: prev.dob || profile.dob,
       telegramSameAsPhone: prev.telegramValue ? prev.telegramSameAsPhone : matchesProfilePhone,
       telegramMethod: prev.telegramValue ? prev.telegramMethod : profile.telegramMethod,
@@ -225,8 +241,12 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
 
     const chosenTreatment = getTreatmentById(values.treatmentId);
     const effectiveTelegram = resolveEffectiveTelegram(values);
+    const effectiveWhatsApp = resolveEffectiveWhatsApp(values);
     const snapshot: BookingFormValues = {
       ...values,
+      whatsappSameAsPhone: values.whatsappSameAsPhone,
+      whatsappCountryCode: effectiveWhatsApp.countryCode,
+      whatsappNumber: effectiveWhatsApp.number,
       telegramMethod: effectiveTelegram.method,
       telegramValue: effectiveTelegram.value,
     };
@@ -268,6 +288,8 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
             fullName: snapshot.fullName.trim(),
             phoneCountryCode: snapshot.phoneCountryCode.trim(),
             phoneNumber: snapshot.phoneNumber.replace(/\D/g, ''),
+            whatsappCountryCode: effectiveWhatsApp.countryCode,
+            whatsappNumber: effectiveWhatsApp.number,
             phone: `${snapshot.phoneCountryCode} ${snapshot.phoneNumber}`,
             treatmentId: snapshot.treatmentId,
             treatmentName: chosenTreatment?.name || 'Private Consultation',
@@ -310,11 +332,13 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
     setSaveGuestError(null);
     try {
       const result = await createBookingRecord(confirmedDetails);
-      setConfirmedMeta({
+      setConfirmedMeta(prev => ({
+        bookingId: result.bookingId,
         savedToProfile: true,
         telegramDeepLink: result.telegramDeepLink,
         serverDispatched: result.serverDispatched,
-      });
+        status: prev?.status,
+      }));
     } catch (err) {
       setSaveGuestError(err instanceof Error ? err.message : 'Unable to save to profile.');
     } finally {
@@ -422,14 +446,20 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
                             <h4 className="font-serif text-2xl font-semibold text-[#1F1B18]">
                               {confirmedMeta?.status === 'cancelled'
                                 ? 'Appointment Cancelled'
-                                : 'Appointment Request Received'}
+                                : confirmedMeta?.status === 'confirmed'
+                                  ? 'Appointment Confirmed'
+                                  : 'Appointment Request Received'}
                             </h4>
-                            <p className="mt-1 text-sm text-[#6E655F]">
+                            <p className="mt-1 text-sm leading-relaxed text-[#6E655F]">
                               {confirmedMeta?.status === 'cancelled'
-                                ? 'This visit was cancelled from your Telegram chat.'
-                                : confirmedMeta?.savedToProfile
-                                  ? 'Saved to your Profile & Calendar. You may edit or cancel this visit for the next 4 hours.'
-                                  : 'Your request is ready. Message us on Telegram or WhatsApp below.'}
+                                ? 'This visit has been cancelled.'
+                                : confirmedMeta?.status === 'confirmed'
+                                  ? 'Our clinical team has confirmed your consultation.'
+                                  : `Someone from our clinical team will message you on WhatsApp (${resolveEffectiveWhatsApp(confirmedDetails).display}) shortly to confirm your consultation.${
+                                      confirmedMeta?.savedToProfile
+                                        ? ' Saved to your Profile & Calendar for 4-hour self-editing.'
+                                        : ''
+                                    }`}
                             </p>
                           </div>
                         </div>
@@ -439,6 +469,12 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
                             <dt className="text-[#6E655F]">Patient</dt>
                             <dd className="font-medium text-[#1F1B18]">
                               {confirmedDetails.fullName}
+                            </dd>
+                          </div>
+                          <div className="flex justify-between gap-4">
+                            <dt className="text-[#6E655F]">WhatsApp (for Confirmation)</dt>
+                            <dd className="font-semibold text-[#4B6B50] tabular-nums">
+                              {resolveEffectiveWhatsApp(confirmedDetails).display}
                             </dd>
                           </div>
                           <div className="flex justify-between gap-4">
@@ -619,7 +655,7 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
                         </div>
                       </div>
 
-                      {/* Phone Number with unified GlideSelect Country Code + Same-as-Telegram Option */}
+                      {/* Phone & WhatsApp Number with unified GlideSelect Country Code */}
                       <div>
                         <label
                           htmlFor="booking-phone"
@@ -658,24 +694,92 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
                           />
                         </div>
 
-                        <label className="mt-2.5 inline-flex cursor-pointer items-center gap-2 text-xs text-[#6E655F] select-none hover:text-[#1F1B18]">
-                          <input
-                            type="checkbox"
-                            checked={Boolean(values.telegramSameAsPhone)}
-                            onChange={e => toggleTelegramSameAsPhone(e.target.checked)}
-                            className="h-4 w-4 cursor-pointer rounded border-[#E2D9CE] accent-[#1F1B18]"
-                          />
-                          <span>This phone number is the same as my Telegram number</span>
-                        </label>
-
                         {errors.phoneNumber ? (
                           <p className="mt-1.5 text-xs text-[#9E3B33]" role="alert">
                             {errors.phoneNumber}
                           </p>
                         ) : null}
+
+                        <div className="mt-3 flex flex-col gap-2">
+                          <label className="inline-flex cursor-pointer items-center gap-2 text-xs text-[#6E655F] select-none hover:text-[#1F1B18]">
+                            <input
+                              type="checkbox"
+                              checked={values.whatsappSameAsPhone !== false}
+                              onChange={e => {
+                                const checked = e.target.checked;
+                                setValues(prev => ({
+                                  ...prev,
+                                  whatsappSameAsPhone: checked,
+                                  whatsappCountryCode: checked
+                                    ? prev.phoneCountryCode
+                                    : prev.whatsappCountryCode || prev.phoneCountryCode,
+                                  whatsappNumber: checked ? '' : prev.whatsappNumber || '',
+                                }));
+                                setErrors(prev => ({ ...prev, whatsappNumber: undefined }));
+                              }}
+                              className="h-4 w-4 cursor-pointer rounded border-[#E2D9CE] accent-[#1F1B18]"
+                            />
+                            <span>This phone number is also my WhatsApp number (for confirmation)</span>
+                          </label>
+
+                          <label className="inline-flex cursor-pointer items-center gap-2 text-xs text-[#6E655F] select-none hover:text-[#1F1B18]">
+                            <input
+                              type="checkbox"
+                              checked={Boolean(values.telegramSameAsPhone)}
+                              onChange={e => toggleTelegramSameAsPhone(e.target.checked)}
+                              className="h-4 w-4 cursor-pointer rounded border-[#E2D9CE] accent-[#1F1B18]"
+                            />
+                            <span>Also receive live Telegram updates on this phone number</span>
+                          </label>
+                        </div>
                       </div>
 
-                      {/* Telegram Username (Inline, No Separate Card or Toggle Options) */}
+                      {values.whatsappSameAsPhone === false ? (
+                        <div>
+                          <label
+                            htmlFor="booking-whatsapp"
+                            className="mb-1.5 block text-xs font-semibold tracking-[0.14em] text-[#1F1B18] uppercase"
+                          >
+                            WhatsApp Number (for Team Confirmation)
+                          </label>
+                          <div className="flex gap-2 sm:gap-2.5">
+                            <GlideSelect
+                              options={countryCodeOptions}
+                              value={values.whatsappCountryCode || '+1'}
+                              onChange={code => updateField('whatsappCountryCode', code)}
+                              showTags={false}
+                              size="lg"
+                              radius={10}
+                              menuWidth={170}
+                              surfaceColor="#FAF7F2"
+                              highlightColor="#EFE9E0"
+                              accentColor="#B68D5E"
+                              textColor="#1F1B18"
+                              ariaLabel="WhatsApp country code"
+                              className="w-28 shrink-0 sm:w-36"
+                            />
+                            <input
+                              id="booking-whatsapp"
+                              type="tel"
+                              inputMode="numeric"
+                              placeholder="3105550199"
+                              value={values.whatsappNumber || ''}
+                              onChange={e =>
+                                updateField('whatsappNumber', sanitizePhoneDigits(e.target.value))
+                              }
+                              aria-invalid={Boolean(errors.whatsappNumber)}
+                              className="h-11 w-full rounded-[10px] border border-[#E2D9CE] bg-[#FAF7F2] px-3.5 text-sm text-[#1F1B18] placeholder-[#6E655F]/60 tabular-nums outline-none transition-colors focus:border-[#B68D5E]"
+                            />
+                          </div>
+                          {errors.whatsappNumber ? (
+                            <p className="mt-1.5 text-xs text-[#9E3B33]" role="alert">
+                              {errors.whatsappNumber}
+                            </p>
+                          ) : null}
+                        </div>
+                      ) : null}
+
+                      {/* Telegram Username (Optional inline field) */}
                       <div>
                         <label
                           htmlFor="booking-telegram"
@@ -802,9 +906,9 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
                   </div>
                   <div>
                     <p className="font-semibold tracking-[0.12em] text-[#1F1B18] uppercase">
-                      Telegram Alerts
+                      WhatsApp Confirmation
                     </p>
-                    <p className="mt-0.5">Instant @{telegramStatus.botUsername} updates</p>
+                    <p className="mt-0.5">Confirmed personally by our team on WhatsApp</p>
                   </div>
                   <div>
                     <p className="font-semibold tracking-[0.12em] text-[#1F1B18] uppercase">
@@ -830,14 +934,7 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
                   />
                 </div>
 
-                <div className="overflow-hidden rounded-xl border border-[#E2D9CE] bg-[#FAF7F2]">
-                  <iframe
-                    src={CLINIC_CONFIG.mapsEmbedUrl}
-                    title="Elara Atelier Beverly Hills Clinic Location"
-                    referrerPolicy="no-referrer-when-downgrade"
-                    className="block h-44 w-full border-0 sm:h-48 2xl:h-56"
-                  />
-                </div>
+                <StudioMap />
 
                 <div className="space-y-4">
                   <div className="flex items-start gap-3.5">
@@ -851,6 +948,15 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
                         <br />
                         {CLINIC_CONFIG.addressLine2}
                       </p>
+                      <a
+                        href={CLINIC_CONFIG.mapsExternalUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-1.5 inline-flex items-center gap-1.5 text-xs font-medium text-[#B68D5E] underline underline-offset-4 transition-colors hover:text-[#1F1B18]"
+                      >
+                        Open in Google Maps
+                        <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+                      </a>
                     </div>
                   </div>
 

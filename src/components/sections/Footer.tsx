@@ -13,7 +13,7 @@ import { CLINIC_CONFIG } from '../../config/clinicConfig';
  */
 export const Footer: React.FC = () => {
   return (
-    <footer className="bg-[#1F1B18] text-[#FAF7F2]">
+    <footer className="bg-[#1F1B18] text-[#FAF7F2] selection:bg-[#D8BA94] selection:text-[#1F1B18]">
       <div className="mx-auto max-w-7xl px-4 py-14 sm:px-8 sm:py-16 2xl:max-w-[1440px]">
         <div className="grid grid-cols-1 gap-10 md:grid-cols-12">
           <div className="md:col-span-5">

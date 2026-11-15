@@ -47,7 +47,7 @@ export interface ComparisonCase {
   treatment: string;
   timeframe: string;
   startingPrice: string;
-  retouchMode: 'teeth' | 'pair';
+  retouchMode: 'teeth' | 'pair' | 'whitening-pair';
   beforeLabel: string;
   afterLabel: string;
   beforeSrc: string;
@@ -96,7 +96,7 @@ export const TREATMENTS: TreatmentItem[] = [
     benefit:
       'Doctor-guided filler appointment to gently lift cheekbones and define your jawline without surgery.',
     duration: '45 min visit',
-    startingPrice: '$1,150',
+    startingPrice: '$450',
     colSpan: 2,
   },
   {
@@ -106,7 +106,7 @@ export const TREATMENTS: TreatmentItem[] = [
     benefit:
       'Quick targeted injections that smooth forehead creases and crow’s feet while keeping natural facial expressions.',
     duration: '30 min visit',
-    startingPrice: '$480',
+    startingPrice: '$140',
   },
   {
     id: 'fa-lip-architecture',
@@ -115,7 +115,7 @@ export const TREATMENTS: TreatmentItem[] = [
     benefit:
       'Soft lip filler appointment that adds gentle fullness, smooths dry lines, and keeps your smile balanced.',
     duration: '40 min visit',
-    startingPrice: '$790',
+    startingPrice: '$260',
   },
   {
     id: 'fa-biostimulator',
@@ -124,7 +124,7 @@ export const TREATMENTS: TreatmentItem[] = [
     benefit:
       'Non-surgical treatment that boosts natural collagen to gradually firm cheeks, smile lines, and jawline.',
     duration: '50 min visit',
-    startingPrice: '$1,450',
+    startingPrice: '$420',
     colSpan: 2,
   },
 
@@ -136,7 +136,7 @@ export const TREATMENTS: TreatmentItem[] = [
     benefit:
       'Custom ultra-thin porcelain shells bonded to the front of your teeth to fix chips, gaps, and deep discoloration.',
     duration: '2 visits · 14 days',
-    startingPrice: '$1,950 / tooth',
+    startingPrice: '$240',
     colSpan: 2,
   },
   {
@@ -146,7 +146,7 @@ export const TREATMENTS: TreatmentItem[] = [
     benefit:
       'Painless 3D mouth scan and preview session letting you see your new tooth shape before starting any dental work.',
     duration: '60 min visit',
-    startingPrice: '$420',
+    startingPrice: '$60',
   },
   {
     id: 'cd-whitening',
@@ -155,7 +155,7 @@ export const TREATMENTS: TreatmentItem[] = [
     benefit:
       'Dentist-supervised whitening session that safely lifts years of coffee, tea, and wine stains in a single appointment.',
     duration: '75 min visit',
-    startingPrice: '$690',
+    startingPrice: '$150',
   },
   {
     id: 'cd-aligners',
@@ -164,7 +164,7 @@ export const TREATMENTS: TreatmentItem[] = [
     benefit:
       'Custom clear removable trays fitted by our dental team to gradually straighten crowded or gapped teeth discreetly.',
     duration: '4–8 months',
-    startingPrice: '$4,200',
+    startingPrice: '$950',
     colSpan: 2,
   },
 
@@ -176,7 +176,7 @@ export const TREATMENTS: TreatmentItem[] = [
     benefit:
       'Gentle under-eye micro-infusion that brightens dark circles, softens hollows, and smooths fine lines.',
     duration: '45 min visit',
-    startingPrice: '$880',
+    startingPrice: '$180',
     colSpan: 2,
   },
   {
@@ -186,7 +186,7 @@ export const TREATMENTS: TreatmentItem[] = [
     benefit:
       'Tiny needles paired with gentle warmth to tighten pores, smooth acne scars, and firm facial skin.',
     duration: '60 min visit',
-    startingPrice: '$1,050',
+    startingPrice: '$220',
   },
   {
     id: 'sl-laser-toning',
@@ -195,7 +195,7 @@ export const TREATMENTS: TreatmentItem[] = [
     benefit:
       'Zero-downtime laser session performed by our skin specialist to fade sun spots, uneven tone, and redness.',
     duration: '45 min visit',
-    startingPrice: '$650',
+    startingPrice: '$95',
   },
   {
     id: 'sl-barrier-infusion',
@@ -204,7 +204,7 @@ export const TREATMENTS: TreatmentItem[] = [
     benefit:
       'Hands-on sculpting massage and cooling therapy to reduce morning puffiness, calm redness, and hydrate skin.',
     duration: '75 min visit',
-    startingPrice: '$490',
+    startingPrice: '$75',
     colSpan: 2,
   },
 ];

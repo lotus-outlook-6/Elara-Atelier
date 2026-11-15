@@ -8,10 +8,16 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ConciergeStore } from './conciergeStore';
 import {
+  getUpcomingClinicDates,
   MENU_BUTTON_LABELS,
   parseCustomClinicDateTime,
   processTelegramUpdate,
 } from './telegramBot';
+import {
+  buildTeamPatientAlertCard,
+  processTeamBotUpdate,
+  TEAM_MENU_LABELS,
+} from './teamTelegramBot';
 
 function createSeededStore(nowMs: number): ConciergeStore {
   const store = new ConciergeStore(null);
@@ -193,7 +199,7 @@ test('persistent menu buttons trigger Treatments, Clinic Hours, Change Timing, a
     nowMs
   );
   assert.match(String(treatmentsRes.actions[0].payload.text), /FACIAL AESTHETICS/);
-  assert.match(String(treatmentsRes.actions[0].payload.text), /\$1,150/);
+  assert.match(String(treatmentsRes.actions[0].payload.text), /\$450/);
 
   // Tap Message Concierge -> then send a greeting & a custom note directly in chat
   const chatPromptRes = processTelegramUpdate(
@@ -235,7 +241,7 @@ test('persistent menu buttons trigger Treatments, Clinic Hours, Change Timing, a
     },
     nowMs + 200
   );
-  assert.match(String(priceRes.actions[0].payload.text), /\$1,950 \/ tooth/);
+  assert.match(String(priceRes.actions[0].payload.text), /\$240/);
   assert.equal(priceRes.syncEvents.some(ev => ev.type === 'concierge_message'), true);
 
   // Verify messages persisted for Camille and NOT leaked to Julian
@@ -268,7 +274,7 @@ test('bot reschedule button updates timing and syncs back to website store', () 
         id: 'cq_1',
         from: { id: 1001, username: 'camille_laurent', first_name: 'Camille' },
         message: { message_id: 50, chat: { id: 1001 } },
-        data: 'cb:time:bk_camille_1:2026-11-21:1600',
+        data: 'cb:time:bk_camille_1:2026-11-23:1600',
       },
     },
     nowMs
@@ -277,9 +283,9 @@ test('bot reschedule button updates timing and syncs back to website store', () 
   assert.equal(dateRes.syncEvents.length, 1);
   assert.equal(dateRes.syncEvents[0].type, 'booking_updated');
   if (dateRes.syncEvents[0].type === 'booking_updated') {
-    assert.equal(dateRes.syncEvents[0].booking.preferredDateTime, '2026-11-21T16:00');
+    assert.equal(dateRes.syncEvents[0].booking.preferredDateTime, '2026-11-23T16:00');
   }
-  assert.equal(store.getBookingById('bk_camille_1')?.preferredDateTime, '2026-11-21T16:00');
+  assert.equal(store.getBookingById('bk_camille_1')?.preferredDateTime, '2026-11-23T16:00');
 
   const hijackAttempt = processTelegramUpdate(
     store,
@@ -288,20 +294,134 @@ test('bot reschedule button updates timing and syncs back to website store', () 
         id: 'cq_bad',
         from: { id: 9999, username: 'intruder', first_name: 'Intruder' },
         message: { message_id: 70, chat: { id: 9999 } },
-        data: 'cb:time:bk_camille_1:2026-11-22:1000',
+        data: 'cb:time:bk_camille_1:2026-11-24:1000',
       },
     },
     nowMs
   );
   assert.equal(hijackAttempt.syncEvents.length, 0);
-  assert.equal(store.getBookingById('bk_camille_1')?.preferredDateTime, '2026-11-21T16:00');
+  assert.equal(store.getBookingById('bk_camille_1')?.preferredDateTime, '2026-11-23T16:00');
 });
 
-test('parseCustomClinicDateTime enforces Mon-Sat 10:00-18:30 hours', () => {
+test('parseCustomClinicDateTime and getUpcomingClinicDates enforce Mon-Fri 10:00-18:30 hours', () => {
   assert.deepEqual(parseCustomClinicDateTime('2026-11-20 14:30'), {
     ok: true,
     iso: '2026-11-20T14:30',
   });
-  assert.equal(parseCustomClinicDateTime('2026-11-22 12:00').ok, false);
+  assert.equal(parseCustomClinicDateTime('2026-11-21 12:00').ok, false); // Saturday closed
+  assert.equal(parseCustomClinicDateTime('2026-11-22 12:00').ok, false); // Sunday closed
   assert.equal(parseCustomClinicDateTime('2026-11-20 20:00').ok, false);
+
+  const upcoming = getUpcomingClinicDates(new Date(2026, 10, 14));
+  assert.equal(upcoming.length, 6);
+  for (const item of upcoming) {
+    const [y, m, d] = item.iso.split('-').map(Number);
+    const day = new Date(y, m - 1, d).getDay();
+    assert.ok(day >= 1 && day <= 5, `Expected Mon–Fri for ${item.iso}, got ${day}`);
+  }
+});
+
+test('Team Bot builds 1-click WhatsApp confirmation card and syncs team confirm/cancel back to patient', () => {
+  const nowMs = Date.UTC(2026, 10, 14, 18, 0, 0);
+  const store = createSeededStore(nowMs);
+  store.upsertBooking({
+    id: 'bk_wa_1',
+    userId: 'user_camille',
+    fullName: 'Camille Laurent',
+    phoneCountryCode: '+1',
+    phoneNumber: '3105550148',
+    whatsappCountryCode: '+33',
+    whatsappNumber: '612345678',
+    treatmentId: 'cd-veneers',
+    treatmentName: 'Porcelain Veneers (Smile Makeover)',
+    preferredDateTime: '2026-11-18T11:00',
+    telegramMethod: 'username',
+    telegramValue: '@camille_laurent',
+    status: 'requested',
+    createdAtMs: nowMs,
+    updatedAtMs: nowMs,
+  });
+
+  // Link Camille's chatId first so patientNotifyEvents triggers when team confirms
+  processTelegramUpdate(
+    store,
+    {
+      message: {
+        chat: { id: 1001 },
+        from: { id: 1001, username: 'camille_laurent', first_name: 'Camille' },
+        text: '/start bk_wa_1',
+      },
+    },
+    nowMs
+  );
+
+  const booking = store.getBookingById('bk_wa_1')!;
+  const card = buildTeamPatientAlertCard(booking);
+  assert.match(card.text, /\+33 612345678/);
+  const waButton = card.reply_markup.inline_keyboard.flat().find(btn => Boolean(btn.url));
+  assert.ok(waButton?.url?.startsWith('https://wa.me/33612345678?text='));
+  const waText = decodeURIComponent(waButton!.url!.split('?text=')[1]);
+  assert.match(waText, /Camille Laurent/);
+  assert.match(waText, /Porcelain Veneers/);
+
+  // Team taps Mark Confirmed
+  const confirmRes = processTeamBotUpdate(
+    store,
+    {
+      callback_query: {
+        id: 'tq_1',
+        from: { id: 9001, username: 'dr_elara' },
+        message: { message_id: 21, chat: { id: 9001 } },
+        data: 'team:confirm:bk_wa_1',
+      },
+    },
+    { nowMs }
+  );
+
+  assert.equal(store.getBookingById('bk_wa_1')?.status, 'confirmed');
+  assert.equal(confirmRes.syncEvents.length, 1);
+  assert.equal(confirmRes.patientNotifyEvents.length, 1);
+  assert.equal(confirmRes.patientNotifyEvents[0].chatId, '1001');
+
+  // Team subscribes with /start and triggers /tomorrowpdf
+  const gatedStart = processTeamBotUpdate(
+    store,
+    {
+      message: {
+        chat: { id: 9002 },
+        from: { id: 9002, username: 'nurse_elena' },
+        text: '/start',
+      },
+    },
+    { teamPasscode: 'ELARA2026', nowMs }
+  );
+  assert.match(String(gatedStart.actions[0].payload.text), /YOUR_TEAM_PASSCODE/);
+  assert.equal(store.getTeamChatIds().includes('9002'), false);
+
+  processTeamBotUpdate(
+    store,
+    {
+      message: {
+        chat: { id: 9002 },
+        from: { id: 9002, username: 'nurse_elena' },
+        text: '/start ELARA2026',
+      },
+    },
+    { teamPasscode: 'ELARA2026', nowMs }
+  );
+  assert.equal(store.getTeamChatIds().includes('9002'), true);
+
+  const pdfRes = processTeamBotUpdate(
+    store,
+    {
+      message: {
+        chat: { id: 9002 },
+        from: { id: 9002, username: 'nurse_elena' },
+        text: TEAM_MENU_LABELS.tomorrowPdf,
+      },
+    },
+    { nowMs }
+  );
+  assert.equal(pdfRes.sendPdfRequests.length, 1);
+  assert.equal(pdfRes.sendPdfRequests[0].chatId, '9002');
 });

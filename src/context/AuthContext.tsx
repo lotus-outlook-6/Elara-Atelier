@@ -35,6 +35,7 @@ import {
   canEditBooking,
   getTreatmentById,
   resolveEffectiveTelegram,
+  resolveEffectiveWhatsApp,
   validateAccountForm,
   validateBookingForm,
   type AccountFormValues,
@@ -48,6 +49,8 @@ export interface UserProfileRecord {
   email: string;
   phoneCountryCode: string;
   phoneNumber: string;
+  whatsappCountryCode?: string;
+  whatsappNumber?: string;
   dob: string;
   telegramMethod: TelegramContactMethod;
   telegramValue: string;
@@ -62,6 +65,8 @@ export interface BookingRecord {
   fullName: string;
   phoneCountryCode: string;
   phoneNumber: string;
+  whatsappCountryCode?: string;
+  whatsappNumber?: string;
   dob: string;
   treatmentId: string;
   treatmentName: string;
@@ -78,6 +83,9 @@ export interface ProfileUpsertPayload {
   fullName: string;
   phoneCountryCode: string;
   phoneNumber: string;
+  whatsappSameAsPhone?: boolean;
+  whatsappCountryCode?: string;
+  whatsappNumber?: string;
   dob: string;
   telegramSameAsPhone?: boolean;
   telegramMethod: TelegramContactMethod;
@@ -87,6 +95,8 @@ export interface ProfileUpsertPayload {
 interface TelegramStatusState {
   botConfigured: boolean;
   botUsername: string;
+  teamBotConfigured: boolean;
+  teamBotUsername: string;
 }
 
 export interface BotSyncNotice {
@@ -136,6 +146,9 @@ interface AuthContextValue {
       preferredDateTime: string;
       phoneCountryCode: string;
       phoneNumber: string;
+      whatsappSameAsPhone?: boolean;
+      whatsappCountryCode?: string;
+      whatsappNumber?: string;
       telegramSameAsPhone?: boolean;
       telegramMethod: TelegramContactMethod;
       telegramValue: string;
@@ -198,6 +211,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [telegramStatus, setTelegramStatus] = useState<TelegramStatusState>({
     botConfigured: false,
     botUsername: CLINIC_CONFIG.defaultTelegramBotUsername,
+    teamBotConfigured: false,
+    teamBotUsername: CLINIC_CONFIG.defaultTeamBotUsername,
   });
   const [botSyncNotice, setBotSyncNotice] = useState<BotSyncNotice | null>(null);
   const [redirectAuthError, setRedirectAuthError] = useState<string | null>(null);
@@ -229,6 +244,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             typeof data.botUsername === 'string' && data.botUsername.trim()
               ? data.botUsername.trim()
               : CLINIC_CONFIG.defaultTelegramBotUsername,
+          teamBotConfigured: Boolean(data.teamBotConfigured),
+          teamBotUsername:
+            typeof data.teamBotUsername === 'string' && data.teamBotUsername.trim()
+              ? data.teamBotUsername.trim()
+              : CLINIC_CONFIG.defaultTeamBotUsername,
         });
       })
       .catch(() => {
@@ -272,6 +292,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             email: String(d.email || user.email || ''),
             phoneCountryCode: String(d.phoneCountryCode || '+1'),
             phoneNumber: String(d.phoneNumber || ''),
+            whatsappCountryCode:
+              typeof d.whatsappCountryCode === 'string' ? d.whatsappCountryCode : undefined,
+            whatsappNumber: typeof d.whatsappNumber === 'string' ? d.whatsappNumber : undefined,
             dob: String(d.dob || ''),
             telegramMethod: d.telegramMethod === 'phone' ? 'phone' : 'username',
             telegramValue: String(d.telegramValue || ''),
@@ -303,6 +326,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             fullName: String(d.fullName || ''),
             phoneCountryCode: String(d.phoneCountryCode || '+1'),
             phoneNumber: String(d.phoneNumber || ''),
+            whatsappCountryCode:
+              typeof d.whatsappCountryCode === 'string' ? d.whatsappCountryCode : undefined,
+            whatsappNumber: typeof d.whatsappNumber === 'string' ? d.whatsappNumber : undefined,
             dob: String(d.dob || ''),
             treatmentId: String(d.treatmentId || ''),
             treatmentName: String(d.treatmentName || ''),
@@ -357,6 +383,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       ) {
         return;
       }
+
+      if (botBooking.status === 'confirmed' && local.status === 'requested') {
+        if (active) {
+          setBookings(prev =>
+            prev.map(item =>
+              item.id === local.id ? { ...item, status: 'confirmed' } : item
+            )
+          );
+          setBotSyncNotice({
+            id: `${local.id}_${Date.now()}`,
+            title: 'Appointment Confirmed by Team',
+            description: `${local.treatmentName} is now confirmed for ${botBooking.preferredDateTime.replace('T', ' ')}.`,
+          });
+        }
+        if (canEditBooking(local.createdAtMs, Date.now(), local.status)) {
+          updateDoc(doc(db, 'bookings', local.id), {
+            status: 'confirmed',
+            updatedAt: serverTimestamp(),
+          }).catch(() => {});
+        }
+        return;
+      }
+
       if (!canEditBooking(local.createdAtMs, Date.now(), local.status)) return;
 
       const bookingPath = `bookings/${local.id}`;
@@ -370,10 +419,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setBotSyncNotice({
               id: `${local.id}_${Date.now()}`,
               title: 'Booking Cancelled via Telegram',
-              description: `${local.treatmentName} was cancelled from your Telegram chat.`,
+              description: `${local.treatmentName} was cancelled.`,
             });
           }
-        } else {
+        } else if (local.preferredDateTime !== botBooking.preferredDateTime) {
           await updateDoc(doc(db, 'bookings', local.id), {
             preferredDateTime: botBooking.preferredDateTime,
             updatedAt: serverTimestamp(),
@@ -406,6 +455,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                   fullName: profile.fullName,
                   phoneCountryCode: profile.phoneCountryCode,
                   phoneNumber: profile.phoneNumber,
+                  whatsappCountryCode: profile.whatsappCountryCode || profile.phoneCountryCode,
+                  whatsappNumber: profile.whatsappNumber || profile.phoneNumber,
                   telegramMethod: profile.telegramMethod,
                   telegramValue: profile.telegramValue,
                   telegramChatId: profile.telegramChatId,
@@ -417,6 +468,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               fullName: b.fullName,
               phoneCountryCode: b.phoneCountryCode,
               phoneNumber: b.phoneNumber,
+              whatsappCountryCode: b.whatsappCountryCode || b.phoneCountryCode,
+              whatsappNumber: b.whatsappNumber || b.phoneNumber,
               treatmentId: b.treatmentId,
               treatmentName: b.treatmentName,
               preferredDateTime: b.preferredDateTime,
@@ -599,6 +652,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await updateProfile(cred.user, { displayName: values.fullName.trim() });
 
     const effectiveTelegram = resolveEffectiveTelegram(values);
+    const effectiveWhatsApp = resolveEffectiveWhatsApp(values);
 
     const profilePath = `users/${cred.user.uid}`;
     try {
@@ -608,6 +662,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         email: cred.user.email || values.email.trim(),
         phoneCountryCode: values.phoneCountryCode.trim(),
         phoneNumber: values.phoneNumber.replace(/\D/g, ''),
+        whatsappCountryCode: effectiveWhatsApp.countryCode,
+        whatsappNumber: effectiveWhatsApp.number,
         dob: values.dob.trim(),
         telegramMethod: effectiveTelegram.method,
         telegramValue: effectiveTelegram.value,
@@ -625,7 +681,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   /**
    * Create or update the signed-in user's Firestore profile.
-   * Inputs: ProfileUpsertPayload containing validated name, phone+code, 18+ DOB, and Telegram info.
+   * Inputs: ProfileUpsertPayload containing validated name, phone+code, WhatsApp, 18+ DOB, and Telegram info.
    */
   const saveUserProfile = async (payload: ProfileUpsertPayload): Promise<void> => {
     const currentUser = auth.currentUser;
@@ -640,6 +696,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         password: 'placeholder-password',
         phoneCountryCode: payload.phoneCountryCode,
         phoneNumber: payload.phoneNumber,
+        whatsappSameAsPhone: payload.whatsappSameAsPhone,
+        whatsappCountryCode: payload.whatsappCountryCode,
+        whatsappNumber: payload.whatsappNumber,
         dob: payload.dob,
         telegramSameAsPhone: payload.telegramSameAsPhone,
         telegramMethod: payload.telegramMethod,
@@ -653,6 +712,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     const effectiveTelegram = resolveEffectiveTelegram(payload);
+    const effectiveWhatsApp = resolveEffectiveWhatsApp(payload);
     const profilePath = `users/${currentUser.uid}`;
     const docRef = doc(db, 'users', currentUser.uid);
 
@@ -662,6 +722,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           fullName: payload.fullName.trim(),
           phoneCountryCode: payload.phoneCountryCode.trim(),
           phoneNumber: payload.phoneNumber.replace(/\D/g, ''),
+          whatsappCountryCode: effectiveWhatsApp.countryCode,
+          whatsappNumber: effectiveWhatsApp.number,
           dob: payload.dob.trim(),
           telegramMethod: effectiveTelegram.method,
           telegramValue: effectiveTelegram.value,
@@ -674,6 +736,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           email: currentUser.email || 'patient@elara-atelier.com',
           phoneCountryCode: payload.phoneCountryCode.trim(),
           phoneNumber: payload.phoneNumber.replace(/\D/g, ''),
+          whatsappCountryCode: effectiveWhatsApp.countryCode,
+          whatsappNumber: effectiveWhatsApp.number,
           dob: payload.dob.trim(),
           telegramMethod: effectiveTelegram.method,
           telegramValue: effectiveTelegram.value,
@@ -687,7 +751,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   /**
-   * Persist a validated booking to Firestore for the signed-in user and trigger Telegram concierge dispatch.
+   * Persist a validated booking to Firestore for the signed-in user and trigger Telegram & Team concierge dispatch.
    * Inputs: BookingFormValues object.
    * Output: { bookingId, telegramDeepLink, serverDispatched }.
    */
@@ -709,6 +773,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const chosenTreatment = getTreatmentById(values.treatmentId);
     const treatmentName = chosenTreatment?.name || 'Private Consultation';
     const effectiveTelegram = resolveEffectiveTelegram(values);
+    const effectiveWhatsApp = resolveEffectiveWhatsApp(values);
     const telegramDeepLink = buildTelegramBotDeepLink(telegramStatus.botUsername, bookingId);
 
     let serverDispatched = false;
@@ -724,6 +789,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           fullName: values.fullName.trim(),
           phoneCountryCode: values.phoneCountryCode.trim(),
           phoneNumber: values.phoneNumber.replace(/\D/g, ''),
+          whatsappCountryCode: effectiveWhatsApp.countryCode,
+          whatsappNumber: effectiveWhatsApp.number,
           phone: `${values.phoneCountryCode.trim()} ${values.phoneNumber.replace(/\D/g, '')}`,
           treatmentId: values.treatmentId,
           treatmentName,
@@ -751,6 +818,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         fullName: values.fullName.trim(),
         phoneCountryCode: values.phoneCountryCode.trim(),
         phoneNumber: values.phoneNumber.replace(/\D/g, ''),
+        whatsappCountryCode: effectiveWhatsApp.countryCode,
+        whatsappNumber: effectiveWhatsApp.number,
         dob: values.dob.trim(),
         treatmentId: values.treatmentId,
         treatmentName,
@@ -771,7 +840,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   /**
    * Edit an existing booking within the 4-hour post-creation window.
-   * Inputs: bookingId and updated treatment, preferred time, phone, and Telegram fields.
+   * Inputs: bookingId and updated treatment, preferred time, phone, WhatsApp, and Telegram fields.
    */
   const editBookingRecord = async (
     bookingId: string,
@@ -780,6 +849,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       preferredDateTime: string;
       phoneCountryCode: string;
       phoneNumber: string;
+      whatsappSameAsPhone?: boolean;
+      whatsappCountryCode?: string;
+      whatsappNumber?: string;
       telegramSameAsPhone?: boolean;
       telegramMethod: TelegramContactMethod;
       telegramValue: string;
@@ -798,6 +870,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       dob: target.dob,
       phoneCountryCode: patch.phoneCountryCode,
       phoneNumber: patch.phoneNumber,
+      whatsappSameAsPhone: patch.whatsappSameAsPhone,
+      whatsappCountryCode: patch.whatsappCountryCode,
+      whatsappNumber: patch.whatsappNumber,
       treatmentId: patch.treatmentId,
       preferredDateTime: patch.preferredDateTime,
       telegramSameAsPhone: patch.telegramSameAsPhone,
@@ -811,6 +886,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const chosenTreatment = getTreatmentById(patch.treatmentId);
     const effectiveTelegram = resolveEffectiveTelegram(patch);
+    const effectiveWhatsApp = resolveEffectiveWhatsApp(patch);
     const bookingPath = `bookings/${bookingId}`;
 
     try {
@@ -820,6 +896,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         preferredDateTime: patch.preferredDateTime,
         phoneCountryCode: patch.phoneCountryCode.trim(),
         phoneNumber: patch.phoneNumber.replace(/\D/g, ''),
+        whatsappCountryCode: effectiveWhatsApp.countryCode,
+        whatsappNumber: effectiveWhatsApp.number,
         telegramMethod: effectiveTelegram.method,
         telegramValue: effectiveTelegram.value,
         updatedAt: serverTimestamp(),
@@ -827,6 +905,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, bookingPath);
     }
+
+    // Notify Team Bot with refreshed WhatsApp link if patient updated treatment/timing/contact
+    fetch('/api/telegram/notify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        bookingId,
+        userId: target.userId,
+        fullName: target.fullName,
+        phoneCountryCode: patch.phoneCountryCode.trim(),
+        phoneNumber: patch.phoneNumber.replace(/\D/g, ''),
+        whatsappCountryCode: effectiveWhatsApp.countryCode,
+        whatsappNumber: effectiveWhatsApp.number,
+        treatmentId: patch.treatmentId,
+        treatmentName: chosenTreatment?.name || target.treatmentName,
+        preferredDateTime: patch.preferredDateTime,
+        telegramMethod: effectiveTelegram.method,
+        telegramValue: effectiveTelegram.value,
+        chatId: profile?.telegramChatId || undefined,
+        createdAtMs: target.createdAtMs,
+      }),
+    }).catch(() => {});
   };
 
   /**

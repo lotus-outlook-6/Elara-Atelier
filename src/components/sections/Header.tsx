@@ -149,9 +149,12 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           )}
 
-          {/* Highlighted Book Visit + Operating Day & Time */}
-          <div className="flex items-center gap-2 rounded-xl border border-[#E2D9CE] bg-[#EFE9E0] p-0.5 sm:gap-2.5 sm:p-1 sm:pl-3">
-            <span className="hidden text-[11px] font-medium tracking-[0.12em] whitespace-nowrap text-[#1F1B18] uppercase xl:inline">
+          {/* Book Visit — reveals Mon–Fri studio hours smoothly on hover/focus */}
+          <div
+            data-testid="header-book-visit-control"
+            className="group/book inline-flex items-center rounded-xl border border-[#E2D9CE] bg-[#EFE9E0] p-0.5 transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] sm:p-1"
+          >
+            <span className="hidden max-w-0 overflow-hidden text-[11px] font-medium tracking-[0.12em] whitespace-nowrap text-[#1F1B18] uppercase opacity-0 transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover/book:max-w-[210px] group-hover/book:pr-2.5 group-hover/book:pl-2.5 group-hover/book:opacity-100 group-focus-within/book:max-w-[210px] group-focus-within/book:pr-2.5 group-focus-within/book:pl-2.5 group-focus-within/book:opacity-100 sm:inline-block">
               {CLINIC_CONFIG.hoursShort}
             </span>
             <HoldButton
@@ -165,7 +168,6 @@ export const Header: React.FC<HeaderProps> = ({
               glow={false}
               doneLabel="Scrolling down..."
               onHold={onBookClick}
-              onTap={onBookClick}
               className="!h-8 !px-3 text-[10px] tracking-[0.06em] uppercase sm:!h-9 sm:!px-4 sm:text-xs sm:tracking-[0.1em]"
             >
               Book Visit

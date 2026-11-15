@@ -16,6 +16,8 @@ export interface ConciergeProfileRecord {
   fullName: string;
   phoneCountryCode: string;
   phoneNumber: string;
+  whatsappCountryCode?: string;
+  whatsappNumber?: string;
   telegramMethod: ConciergeTelegramMethod;
   telegramValue: string;
   telegramChatId?: string;
@@ -28,6 +30,8 @@ export interface ConciergeBookingRecord {
   fullName: string;
   phoneCountryCode: string;
   phoneNumber: string;
+  whatsappCountryCode?: string;
+  whatsappNumber?: string;
   treatmentId: string;
   treatmentName: string;
   preferredDateTime: string;
@@ -65,6 +69,8 @@ export interface PersistedConciergeData {
   bookings: Record<string, ConciergeBookingRecord>;
   chats: Record<string, TelegramChatIdentity>;
   messages: ConciergeMessageRecord[];
+  teamChatIds: string[];
+  lastDailyPdfSentForDate?: string;
 }
 
 /**
@@ -126,6 +132,7 @@ export class ConciergeStore {
     bookings: {},
     chats: {},
     messages: [],
+    teamChatIds: [],
   };
 
   /**
@@ -147,10 +154,23 @@ export class ConciergeStore {
           bookings: parsed.bookings && typeof parsed.bookings === 'object' ? parsed.bookings : {},
           chats: parsed.chats && typeof parsed.chats === 'object' ? parsed.chats : {},
           messages: Array.isArray(parsed.messages) ? parsed.messages : [],
+          teamChatIds: Array.isArray(parsed.teamChatIds)
+            ? parsed.teamChatIds.map(id => String(id).trim()).filter(Boolean)
+            : [],
+          lastDailyPdfSentForDate:
+            typeof parsed.lastDailyPdfSentForDate === 'string'
+              ? parsed.lastDailyPdfSentForDate
+              : undefined,
         };
       }
     } catch {
-      this.data = { profiles: {}, bookings: {}, chats: {}, messages: [] };
+      this.data = {
+        profiles: {},
+        bookings: {},
+        chats: {},
+        messages: [],
+        teamChatIds: [],
+      };
     }
   }
 
@@ -618,5 +638,107 @@ export class ConciergeStore {
     return this.data.messages
       .filter(msg => msg.userId === userId || (Boolean(linkedChatId) && msg.chatId === linkedChatId))
       .sort((a, b) => a.createdAtMs - b.createdAtMs);
+  }
+
+  /**
+   * Register a doctor or clinical team Telegram chatId so the Team Bot delivers individual booking alerts and EOD PDFs.
+   * Inputs: numeric/string Telegram chatId.
+   * Output: deduplicated list of registered team chatIds.
+   */
+  registerTeamChat(chatId: string): string[] {
+    const clean = String(chatId || '').trim();
+    if (!clean) return [...this.data.teamChatIds];
+    if (!this.data.teamChatIds.includes(clean)) {
+      this.data.teamChatIds.push(clean);
+      this.saveToDisk();
+    }
+    return [...this.data.teamChatIds];
+  }
+
+  /**
+   * Resolve all team Telegram chatIds by combining env config (comma-separated allowed) and registered chats.
+   * Inputs: optional envChatIds string (e.g. process.env.TELEGRAM_TEAM_CHAT_ID).
+   * Output: deduplicated non-empty chatId array.
+   */
+  getTeamChatIds(envChatIds?: string): string[] {
+    const combined = new Set<string>();
+    if (envChatIds) {
+      for (const part of envChatIds.split(',')) {
+        const trimmed = part.trim();
+        if (trimmed) combined.add(trimmed);
+      }
+    }
+    for (const stored of this.data.teamChatIds) {
+      if (stored.trim()) combined.add(stored.trim());
+    }
+    return Array.from(combined);
+  }
+
+  /**
+   * Return the YYYY-MM-DD schedule date for which the end-of-day PDF digest was last sent.
+   * Output: ISO date string or undefined.
+   */
+  getLastDailyPdfSentForDate(): string | undefined {
+    return this.data.lastDailyPdfSentForDate;
+  }
+
+  /**
+   * Mark a target schedule date (YYYY-MM-DD) as having had its PDF digest delivered to the Team Bot.
+   * Inputs: targetIsoDate string.
+   */
+  markDailyPdfSent(targetIsoDate: string): void {
+    this.data.lastDailyPdfSentForDate = targetIsoDate;
+    this.saveToDisk();
+  }
+
+  /**
+   * Return all bookings scheduled on a specific YYYY-MM-DD date sorted chronologically.
+   * Inputs: isoDate ('YYYY-MM-DD'), optional includeCancelled boolean (default false).
+   * Output: sorted ConciergeBookingRecord array.
+   */
+  getBookingsForDate(isoDate: string, includeCancelled = false): ConciergeBookingRecord[] {
+    return Object.values(this.data.bookings)
+      .filter(b => b.preferredDateTime.startsWith(isoDate) && (includeCancelled || b.status !== 'cancelled'))
+      .sort((a, b) => {
+        const cmp = a.preferredDateTime.localeCompare(b.preferredDateTime);
+        return cmp !== 0 ? cmp : a.createdAtMs - b.createdAtMs;
+      });
+  }
+
+  /**
+   * Return all active bookings currently awaiting team confirmation ('requested'), sorted chronologically.
+   * Output: sorted ConciergeBookingRecord array.
+   */
+  getPendingBookings(): ConciergeBookingRecord[] {
+    return Object.values(this.data.bookings)
+      .filter(b => b.status === 'requested')
+      .sort((a, b) => a.preferredDateTime.localeCompare(b.preferredDateTime));
+  }
+
+  /**
+   * Update a booking's confirmation or cancellation status initiated by the clinical team from the Team Bot.
+   * Inputs: bookingId string, next status ('confirmed' | 'cancelled'), optional nowMs.
+   * Output: { ok: true, booking } or { ok: false, error }.
+   */
+  updateBookingStatusFromTeam(
+    bookingId: string,
+    status: 'confirmed' | 'cancelled',
+    nowMs = Date.now()
+  ): { ok: true; booking: ConciergeBookingRecord } | { ok: false; error: string } {
+    const booking = this.data.bookings[bookingId];
+    if (!booking) {
+      return { ok: false, error: 'Booking record could not be found.' };
+    }
+    if (booking.status === 'cancelled' && status === 'confirmed') {
+      return { ok: false, error: 'This appointment was already cancelled.' };
+    }
+
+    booking.status = status;
+    booking.updatedAtMs = nowMs;
+    booking.botUpdatedAtMs = nowMs;
+    booking.updatedVia = 'telegram_bot';
+    this.saveToDisk();
+
+    return { ok: true, booking };
   }
 }

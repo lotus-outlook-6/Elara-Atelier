@@ -151,7 +151,7 @@ function formatEditCountdown(booking: ConciergeBookingRecord, nowMs = Date.now()
 }
 
 /**
- * Generate the next 6 open clinic days (Mon–Sat, skipping Sundays) starting from tomorrow.
+ * Generate the next 6 open clinic days (Mon–Fri, skipping Saturdays & Sundays) starting from tomorrow.
  * Inputs: optional reference Date.
  * Output: array of { iso, label } date choices.
  */
@@ -163,9 +163,10 @@ export function getUpcomingClinicDates(referenceDate: Date = new Date()): Array<
     referenceDate.getDate()
   );
 
-  for (let i = 0; i < 12 && dates.length < 6; i += 1) {
+  for (let i = 0; i < 16 && dates.length < 6; i += 1) {
     const candidate = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate() + i + 1);
-    if (candidate.getDay() === 0) continue;
+    const weekday = candidate.getDay();
+    if (weekday === 0 || weekday === 6) continue;
     const yyyy = candidate.getFullYear();
     const mm = String(candidate.getMonth() + 1).padStart(2, '0');
     const dd = String(candidate.getDate()).padStart(2, '0');
@@ -182,7 +183,7 @@ export function getUpcomingClinicDates(referenceDate: Date = new Date()): Array<
 /**
  * Parse natural or formatted date-time text entered by a patient (e.g. "2026-11-20 14:30").
  * Inputs: raw text string.
- * Output: normalized "YYYY-MM-DDTHH:MM" string or error message if invalid/outside Mon–Sat 10:00–18:30 hours.
+ * Output: normalized "YYYY-MM-DDTHH:MM" string or error message if invalid/outside Mon–Fri 10:00–18:30 hours.
  */
 export function parseCustomClinicDateTime(raw: string): { ok: true; iso: string } | { ok: false; error: string } {
   const match = /^(\d{4})-(\d{2})-(\d{2})[\sT]+(\d{1,2}):(\d{2})$/.exec(raw.trim());
@@ -211,11 +212,11 @@ export function parseCustomClinicDateTime(raw: string): { ok: true; iso: string 
   ) {
     return { ok: false, error: 'That calendar date or time is invalid.' };
   }
-  if (dt.getDay() === 0) {
-    return { ok: false, error: 'Sundays are by private appointment only. Please choose Mon–Sat.' };
+  if (dt.getDay() === 0 || dt.getDay() === 6) {
+    return { ok: false, error: 'Saturday and Sunday are closed. Please choose Mon–Fri.' };
   }
   if (hour < 10 || hour > 18 || (hour === 18 && minute > 30)) {
-    return { ok: false, error: 'Studio hours are Mon–Sat, 10:00 AM – 7:00 PM (last slot 18:30).' };
+    return { ok: false, error: 'Studio hours are Mon–Fri, 10:00 AM – 7:00 PM (last slot 18:30).' };
   }
 
   const iso = `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
@@ -347,8 +348,7 @@ export function buildClinicDetailsText(): string {
     `<b>Address:</b> ${escapeTelegramHtml(CLINIC_CONFIG.addressLine1)}, ${escapeTelegramHtml(CLINIC_CONFIG.addressLine2)}`,
     `<b>Hours:</b> ${escapeTelegramHtml(CLINIC_CONFIG.hoursSummary)}`,
     `• Mon–Fri: 10:00 AM – 7:00 PM`,
-    `• Saturday: 10:00 AM – 5:00 PM`,
-    `• Sunday: By Private Appointment`,
+    `• Sat &amp; Sun: Closed`,
     `<b>Direct Concierge:</b> ${escapeTelegramHtml(CLINIC_CONFIG.phoneDisplay)}`,
     `<b>Email:</b> ${escapeTelegramHtml(CLINIC_CONFIG.email)}`,
   ].join('\n');
@@ -715,7 +715,7 @@ export function processTelegramUpdate(
           `<b>Reschedule · ${escapeTelegramHtml(target.treatmentName)}</b>`,
           `Current Time: <b>${escapeTelegramHtml(formatBotDateTime(target.preferredDateTime))}</b>`,
           ``,
-          `Select a new clinic day (Mon–Sat):`,
+          `Select a new clinic day (Mon–Fri):`,
         ].join('\n'),
         { inline_keyboard: rows }
       );
@@ -817,7 +817,7 @@ export function processTelegramUpdate(
       editOrSend(
         [
           `<b>Enter Custom Visit Time</b>`,
-          `Reply with your preferred clinic date and time (Mon–Sat, 10:00–18:30) as:`,
+          `Reply with your preferred clinic date and time (Mon–Fri, 10:00–18:30) as:`,
           `<code>YYYY-MM-DD HH:MM</code> (example: <code>2026-11-20 14:30</code>)`,
         ].join('\n'),
         { inline_keyboard: [[{ text: 'Cancel', callback_data: 'cb:list' }]] }
@@ -1062,7 +1062,7 @@ export function processTelegramUpdate(
             `<b>Reschedule · ${escapeTelegramHtml(target.treatmentName)}</b>`,
             `Current Time: <b>${escapeTelegramHtml(formatBotDateTime(target.preferredDateTime))}</b>`,
             ``,
-            `Choose a new clinic day (Mon–Sat):`,
+            `Choose a new clinic day (Mon–Fri):`,
           ].join('\n'),
           parse_mode: 'HTML',
           reply_markup: { inline_keyboard: rows },

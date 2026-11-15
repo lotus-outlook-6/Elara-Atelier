@@ -27,4 +27,9 @@
   h1, h2, h3, h4 {
     font-family: var(--font-serif);
   }
+
+  ::selection {
+    background-color: #D8BA94;
+    color: #1F1B18;
+  }
 }

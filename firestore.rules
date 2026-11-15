@@ -74,6 +74,8 @@ service cloud.firestore {
           'email',
           'phoneCountryCode',
           'phoneNumber',
+          'whatsappCountryCode',
+          'whatsappNumber',
           'dob',
           'telegramMethod',
           'telegramValue',
@@ -87,6 +89,8 @@ service cloud.firestore {
         && data.email is string && data.email.size() >= 5 && data.email.size() <= 160
         && isValidCountryCode(data.phoneCountryCode)
         && isValidPhone(data.phoneNumber)
+        && (!('whatsappCountryCode' in data) || isValidCountryCode(data.whatsappCountryCode))
+        && (!('whatsappNumber' in data) || isValidPhone(data.whatsappNumber))
         && isValidDob(data.dob)
         && isValidTelegram(data.telegramMethod, data.telegramValue)
         && (!('telegramChatId' in data) || (data.telegramChatId is string && data.telegramChatId.size() <= 64))
@@ -118,6 +122,8 @@ service cloud.firestore {
           'fullName',
           'phoneCountryCode',
           'phoneNumber',
+          'whatsappCountryCode',
+          'whatsappNumber',
           'dob',
           'treatmentId',
           'treatmentName',
@@ -135,6 +141,8 @@ service cloud.firestore {
         && isValidName(data.fullName)
         && isValidCountryCode(data.phoneCountryCode)
         && isValidPhone(data.phoneNumber)
+        && (!('whatsappCountryCode' in data) || isValidCountryCode(data.whatsappCountryCode))
+        && (!('whatsappNumber' in data) || isValidPhone(data.whatsappNumber))
         && isValidDob(data.dob)
         && data.treatmentId is string && data.treatmentId.size() >= 2 && data.treatmentId.size() <= 64
         && data.treatmentName is string && data.treatmentName.size() >= 2 && data.treatmentName.size() <= 120
@@ -169,6 +177,8 @@ service cloud.firestore {
           'fullName',
           'phoneCountryCode',
           'phoneNumber',
+          'whatsappCountryCode',
+          'whatsappNumber',
           'dob',
           'telegramMethod',
           'telegramValue',
@@ -212,9 +222,21 @@ service cloud.firestore {
               'preferredDateTime',
               'phoneCountryCode',
               'phoneNumber',
+              'whatsappCountryCode',
+              'whatsappNumber',
               'telegramMethod',
               'telegramValue',
               'telegramNotifyStatus',
+              'updatedAt'
+            ])
+          )
+          ||
+          // Action: Sync confirmed status when confirmed by clinical team
+          (
+            existing().status == 'requested'
+            && incoming().status == 'confirmed'
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'status',
               'updatedAt'
             ])
           )

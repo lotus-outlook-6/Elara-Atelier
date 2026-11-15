@@ -15,10 +15,10 @@ import {
   ExternalLink,
   Info,
   Lock,
+  MessageCircle,
   Phone,
   Send,
   ShieldCheck,
-  User,
   XCircle,
 } from 'lucide-react';
 import { CLINIC_CONFIG, COUNTRY_CODES } from '../../config/clinicConfig';
@@ -33,6 +33,7 @@ import {
   formatPreferredDateTime,
   getRemainingEditWindow,
   resolveEffectiveTelegram,
+  resolveEffectiveWhatsApp,
   sanitizeNameInput,
   sanitizePhoneDigits,
   type TelegramContactMethod,
@@ -90,8 +91,11 @@ export const ProfileSection: React.FC<ProfileSectionProps> = ({
     fullName: '',
     phoneCountryCode: '+1',
     phoneNumber: '',
+    whatsappSameAsPhone: true,
+    whatsappCountryCode: '+1',
+    whatsappNumber: '',
     dob: '',
-    telegramSameAsPhone: false,
+    telegramSameAsPhone: true,
     telegramMethod: 'username' as TelegramContactMethod,
     telegramValue: '',
   });
@@ -105,7 +109,10 @@ export const ProfileSection: React.FC<ProfileSectionProps> = ({
     preferredDateTime: '',
     phoneCountryCode: '+1',
     phoneNumber: '',
-    telegramSameAsPhone: false,
+    whatsappSameAsPhone: true,
+    whatsappCountryCode: '+1',
+    whatsappNumber: '',
+    telegramSameAsPhone: true,
     telegramMethod: 'username' as TelegramContactMethod,
     telegramValue: '',
   });
@@ -129,10 +136,19 @@ export const ProfileSection: React.FC<ProfileSectionProps> = ({
       const matchesPhone =
         profile.telegramMethod === 'phone' &&
         profile.telegramValue.replace(/\s+/g, '') === fullPhone;
+      const waCode = profile.whatsappCountryCode || profile.phoneCountryCode;
+      const waDigits = sanitizePhoneDigits(profile.whatsappNumber || '');
+      const waMatchesPhone =
+        !waDigits ||
+        (waCode === profile.phoneCountryCode &&
+          waDigits === sanitizePhoneDigits(profile.phoneNumber));
       setProfileForm({
         fullName: profile.fullName,
         phoneCountryCode: profile.phoneCountryCode,
         phoneNumber: profile.phoneNumber,
+        whatsappSameAsPhone: waMatchesPhone,
+        whatsappCountryCode: waCode,
+        whatsappNumber: waMatchesPhone ? '' : waDigits,
         dob: profile.dob,
         telegramSameAsPhone: matchesPhone,
         telegramMethod: matchesPhone ? 'username' : profile.telegramMethod,
@@ -223,6 +239,12 @@ export const ProfileSection: React.FC<ProfileSectionProps> = ({
     const matchesPhone =
       booking.telegramMethod === 'phone' &&
       booking.telegramValue.replace(/\s+/g, '') === fullPhone;
+    const waCode = booking.whatsappCountryCode || booking.phoneCountryCode;
+    const waDigits = sanitizePhoneDigits(booking.whatsappNumber || '');
+    const waMatchesPhone =
+      !waDigits ||
+      (waCode === booking.phoneCountryCode &&
+        waDigits === sanitizePhoneDigits(booking.phoneNumber));
     setEditingBookingId(booking.id);
     setBookingEditError(null);
     setConfirmCancelId(null);
@@ -231,6 +253,9 @@ export const ProfileSection: React.FC<ProfileSectionProps> = ({
       preferredDateTime: booking.preferredDateTime,
       phoneCountryCode: booking.phoneCountryCode,
       phoneNumber: booking.phoneNumber,
+      whatsappSameAsPhone: waMatchesPhone,
+      whatsappCountryCode: waCode,
+      whatsappNumber: waMatchesPhone ? '' : waDigits,
       telegramSameAsPhone: matchesPhone,
       telegramMethod: matchesPhone ? 'username' : booking.telegramMethod,
       telegramValue: matchesPhone ? '' : booking.telegramValue,
@@ -246,8 +271,12 @@ export const ProfileSection: React.FC<ProfileSectionProps> = ({
     setSavingBookingEdit(true);
     try {
       const resolvedTelegram = resolveEffectiveTelegram(bookingEditDraft);
+      const resolvedWhatsApp = resolveEffectiveWhatsApp(bookingEditDraft);
       await editBookingRecord(bookingId, {
         ...bookingEditDraft,
+        whatsappSameAsPhone: bookingEditDraft.whatsappSameAsPhone,
+        whatsappCountryCode: resolvedWhatsApp.countryCode,
+        whatsappNumber: resolvedWhatsApp.number,
         telegramMethod: resolvedTelegram.method,
         telegramValue: resolvedTelegram.value,
       });
@@ -288,17 +317,21 @@ export const ProfileSection: React.FC<ProfileSectionProps> = ({
     setSavingProfile(true);
     try {
       const resolvedTelegram = resolveEffectiveTelegram(profileForm);
+      const resolvedWhatsApp = resolveEffectiveWhatsApp(profileForm);
       await saveUserProfile({
         fullName: profileForm.fullName,
         phoneCountryCode: profileForm.phoneCountryCode,
         phoneNumber: profileForm.phoneNumber,
+        whatsappSameAsPhone: profileForm.whatsappSameAsPhone,
+        whatsappCountryCode: resolvedWhatsApp.countryCode,
+        whatsappNumber: resolvedWhatsApp.number,
         dob: profileForm.dob,
         telegramSameAsPhone: profileForm.telegramSameAsPhone,
         telegramMethod: resolvedTelegram.method,
         telegramValue: resolvedTelegram.value,
       });
       setEditingProfile(false);
-      onNotify('Profile Saved', 'Patient details and Telegram preferences updated.');
+      onNotify('Profile Saved', 'Patient details, WhatsApp, and Telegram preferences updated.');
     } catch (err) {
       setProfileError(err instanceof Error ? err.message : 'Could not save profile.');
     } finally {
@@ -526,26 +559,91 @@ export const ProfileSection: React.FC<ProfileSectionProps> = ({
                       }
                       className="h-10 w-full rounded-lg border border-[#E2D9CE] bg-[#FAF7F2] px-3 text-sm text-[#1F1B18] tabular-nums"
                     />
-                    <label className="mt-2 inline-flex cursor-pointer items-center gap-2 text-xs text-[#6E655F]">
-                      <input
-                        type="checkbox"
-                        checked={profileForm.telegramSameAsPhone}
-                        onChange={e =>
-                          setProfileForm(prev => ({
-                            ...prev,
-                            telegramSameAsPhone: e.target.checked,
-                            telegramMethod: e.target.checked ? 'username' : prev.telegramMethod,
-                            telegramValue:
-                              e.target.checked && prev.telegramMethod === 'phone'
-                                ? ''
-                                : prev.telegramValue,
-                          }))
-                        }
-                        className="h-3.5 w-3.5 rounded border-[#E2D9CE] accent-[#1F1B18]"
-                      />
-                      <span>This phone number is the same as my Telegram number</span>
-                    </label>
+                    <div className="mt-2.5 flex flex-col gap-2">
+                      <label className="inline-flex cursor-pointer items-center gap-2 text-xs text-[#6E655F]">
+                        <input
+                          type="checkbox"
+                          checked={profileForm.whatsappSameAsPhone}
+                          onChange={e =>
+                            setProfileForm(prev => ({
+                              ...prev,
+                              whatsappSameAsPhone: e.target.checked,
+                              whatsappCountryCode: e.target.checked
+                                ? prev.phoneCountryCode
+                                : prev.whatsappCountryCode || prev.phoneCountryCode,
+                              whatsappNumber: e.target.checked ? '' : prev.whatsappNumber,
+                            }))
+                          }
+                          className="h-3.5 w-3.5 rounded border-[#E2D9CE] accent-[#1F1B18]"
+                        />
+                        <span>This phone number is also my WhatsApp number</span>
+                      </label>
+
+                      <label className="inline-flex cursor-pointer items-center gap-2 text-xs text-[#6E655F]">
+                        <input
+                          type="checkbox"
+                          checked={profileForm.telegramSameAsPhone}
+                          onChange={e =>
+                            setProfileForm(prev => ({
+                              ...prev,
+                              telegramSameAsPhone: e.target.checked,
+                              telegramMethod: e.target.checked ? 'username' : prev.telegramMethod,
+                              telegramValue:
+                                e.target.checked && prev.telegramMethod === 'phone'
+                                  ? ''
+                                  : prev.telegramValue,
+                            }))
+                          }
+                          className="h-3.5 w-3.5 rounded border-[#E2D9CE] accent-[#1F1B18]"
+                        />
+                        <span>Also receive live Telegram updates on this phone number</span>
+                      </label>
+                    </div>
                   </div>
+
+                  {!profileForm.whatsappSameAsPhone ? (
+                    <div>
+                      <label
+                        htmlFor="prof-whatsapp"
+                        className="mb-1 block text-[11px] font-semibold tracking-[0.12em] text-[#1F1B18] uppercase"
+                      >
+                        WhatsApp Number (for Confirmation)
+                      </label>
+                      <div className="flex gap-2">
+                        <GlideSelect
+                          options={countryCodeOptions}
+                          value={profileForm.whatsappCountryCode}
+                          onChange={code =>
+                            setProfileForm(prev => ({ ...prev, whatsappCountryCode: code }))
+                          }
+                          showTags={false}
+                          size="lg"
+                          radius={8}
+                          menuWidth={170}
+                          surfaceColor="#FAF7F2"
+                          highlightColor="#EFE9E0"
+                          accentColor="#B68D5E"
+                          textColor="#1F1B18"
+                          ariaLabel="Profile WhatsApp country code"
+                          className="w-28 shrink-0"
+                        />
+                        <input
+                          id="prof-whatsapp"
+                          type="tel"
+                          inputMode="numeric"
+                          value={profileForm.whatsappNumber}
+                          onChange={e =>
+                            setProfileForm(prev => ({
+                              ...prev,
+                              whatsappNumber: sanitizePhoneDigits(e.target.value),
+                            }))
+                          }
+                          placeholder="3105550199"
+                          className="h-11 flex-1 rounded-lg border border-[#E2D9CE] bg-[#FAF7F2] px-3 text-sm text-[#1F1B18] tabular-nums"
+                        />
+                      </div>
+                    </div>
+                  ) : null}
 
                   <div>
                     <label
@@ -590,6 +688,18 @@ export const ProfileSection: React.FC<ProfileSectionProps> = ({
                     <dt className="text-[#6E655F]">Phone</dt>
                     <dd className="font-medium text-[#1F1B18] tabular-nums">
                       {profile.phoneCountryCode} {profile.phoneNumber}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between gap-4">
+                    <dt className="text-[#6E655F]">WhatsApp (Confirmation)</dt>
+                    <dd className="font-medium text-[#4B6B50] tabular-nums">
+                      {resolveEffectiveWhatsApp({
+                        phoneCountryCode: profile.phoneCountryCode,
+                        phoneNumber: profile.phoneNumber,
+                        whatsappSameAsPhone: !profile.whatsappNumber,
+                        whatsappCountryCode: profile.whatsappCountryCode,
+                        whatsappNumber: profile.whatsappNumber,
+                      }).display}
                     </dd>
                   </div>
                   <div className="flex justify-between gap-4">
@@ -731,11 +841,18 @@ export const ProfileSection: React.FC<ProfileSectionProps> = ({
               </div>
 
               <div className="mt-4 grid grid-cols-7 gap-1.5 text-center text-[11px] font-semibold tracking-[0.12em] text-[#6E655F] uppercase">
-                {WEEKDAYS.map(day => (
-                  <div key={day} className="py-1.5">
-                    {day}
-                  </div>
-                ))}
+                {WEEKDAYS.map((day, idx) => {
+                  const isWeekendCol = idx === 0 || idx === 6;
+                  return (
+                    <div
+                      key={day}
+                      title={isWeekendCol ? 'Closed Sat & Sun' : undefined}
+                      className={`py-1.5 ${isWeekendCol ? 'text-[#6E655F]/40 line-through' : ''}`}
+                    >
+                      {day}
+                    </div>
+                  );
+                })}
               </div>
 
               <div className="mt-1 grid grid-cols-7 gap-1.5">
@@ -743,23 +860,28 @@ export const ProfileSection: React.FC<ProfileSectionProps> = ({
                   const dayBookings = bookingsByDate.get(cell.isoDate) ?? [];
                   const hasBookings = dayBookings.length > 0;
                   const isSelected = selectedIsoDate === cell.isoDate;
+                  const isClosedWeekend =
+                    (cell.dayOfWeek === 0 || cell.dayOfWeek === 6) && !hasBookings;
 
                   return (
                     <button
                       key={cell.isoDate}
                       type="button"
+                      disabled={isClosedWeekend}
                       onClick={() =>
                         setSelectedIsoDate(prev => (prev === cell.isoDate ? null : cell.isoDate))
                       }
-                      aria-label={`${cell.isoDate}${hasBookings ? `, ${dayBookings.length} scheduled visit` : ''}`}
-                      className={`relative flex h-12 cursor-pointer flex-col items-center justify-center rounded-xl border text-xs tabular-nums transition-colors sm:h-14 ${
-                        isSelected
-                          ? 'border-[#1F1B18] bg-[#1F1B18] text-[#FAF7F2]'
-                          : hasBookings
-                            ? 'border-[#B68D5E] bg-[#FAF7F2] font-semibold text-[#1F1B18] hover:bg-[#E5DACB]'
-                            : cell.inCurrentMonth
-                              ? 'border-[#E2D9CE] bg-[#FAF7F2]/70 text-[#1F1B18] hover:border-[#B68D5E]'
-                              : 'border-transparent bg-transparent text-[#6E655F]/45 hover:bg-[#FAF7F2]/40'
+                      aria-label={`${cell.isoDate}${isClosedWeekend ? ' (Closed)' : hasBookings ? `, ${dayBookings.length} scheduled visit` : ''}`}
+                      className={`relative flex h-12 flex-col items-center justify-center rounded-xl border text-xs tabular-nums transition-colors sm:h-14 ${
+                        isClosedWeekend
+                          ? 'cursor-not-allowed border-transparent bg-[#FAF7F2]/30 text-[#6E655F]/30 line-through'
+                          : isSelected
+                            ? 'cursor-pointer border-[#1F1B18] bg-[#1F1B18] text-[#FAF7F2]'
+                            : hasBookings
+                              ? 'cursor-pointer border-[#B68D5E] bg-[#FAF7F2] font-semibold text-[#1F1B18] hover:bg-[#E5DACB]'
+                              : cell.inCurrentMonth
+                                ? 'cursor-pointer border-[#E2D9CE] bg-[#FAF7F2]/70 text-[#1F1B18] hover:border-[#B68D5E]'
+                                : 'cursor-pointer border-transparent bg-transparent text-[#6E655F]/45 hover:bg-[#FAF7F2]/40'
                       }`}
                     >
                       <span>{cell.dayNumber}</span>
@@ -771,7 +893,7 @@ export const ProfileSection: React.FC<ProfileSectionProps> = ({
                         >
                           {dayBookings.length} visit{dayBookings.length > 1 ? 's' : ''}
                         </span>
-                      ) : cell.isToday ? (
+                      ) : cell.isToday && !isClosedWeekend ? (
                         <span className="mt-0.5 text-[9px] tracking-wider uppercase opacity-75">
                           Today
                         </span>
@@ -863,15 +985,23 @@ export const ProfileSection: React.FC<ProfileSectionProps> = ({
                                 className={`inline-flex items-center gap-1 font-semibold tracking-[0.12em] uppercase ${
                                   booking.status === 'cancelled'
                                     ? 'text-[#9E3B33]'
-                                    : 'text-[#4B6B50]'
+                                    : booking.status === 'confirmed'
+                                      ? 'text-[#4B6B50]'
+                                      : 'text-[#B68D5E]'
                                 }`}
                               >
                                 {booking.status === 'cancelled' ? (
                                   <XCircle className="h-3.5 w-3.5" />
-                                ) : (
+                                ) : booking.status === 'confirmed' ? (
                                   <CheckCircle2 className="h-3.5 w-3.5" />
+                                ) : (
+                                  <MessageCircle className="h-3.5 w-3.5" />
                                 )}
-                                {booking.status}
+                                {booking.status === 'cancelled'
+                                  ? 'Cancelled'
+                                  : booking.status === 'confirmed'
+                                    ? 'Confirmed by Team'
+                                    : 'Pending WhatsApp Confirmation'}
                               </span>
                               <span aria-hidden="true" className="text-[#6E655F]">
                                 ·
@@ -942,6 +1072,19 @@ export const ProfileSection: React.FC<ProfileSectionProps> = ({
                         </div>
 
                         <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-[#E2D9CE] pt-3 text-xs text-[#6E655F]">
+                          <span className="tabular-nums">
+                            WhatsApp:{' '}
+                            {
+                              resolveEffectiveWhatsApp({
+                                phoneCountryCode: booking.phoneCountryCode,
+                                phoneNumber: booking.phoneNumber,
+                                whatsappSameAsPhone: !booking.whatsappNumber,
+                                whatsappCountryCode: booking.whatsappCountryCode,
+                                whatsappNumber: booking.whatsappNumber,
+                              }).display
+                            }
+                          </span>
+                          <span aria-hidden="true">·</span>
                           <span className="tabular-nums">
                             Phone: {booking.phoneCountryCode} {booking.phoneNumber}
                           </span>
@@ -1064,27 +1207,50 @@ export const ProfileSection: React.FC<ProfileSectionProps> = ({
                                     className="h-11 flex-1 rounded-lg border border-[#E2D9CE] bg-[#FAF7F2] px-3 text-sm text-[#1F1B18] tabular-nums"
                                   />
                                 </div>
-                                <label className="mt-2 inline-flex cursor-pointer items-center gap-2 text-xs text-[#6E655F]">
-                                  <input
-                                    type="checkbox"
-                                    checked={bookingEditDraft.telegramSameAsPhone}
-                                    onChange={e =>
-                                      setBookingEditDraft(prev => ({
-                                        ...prev,
-                                        telegramSameAsPhone: e.target.checked,
-                                        telegramMethod: e.target.checked
-                                          ? 'username'
-                                          : prev.telegramMethod,
-                                        telegramValue:
-                                          e.target.checked && prev.telegramMethod === 'phone'
+                                <div className="mt-2 flex flex-col gap-1.5">
+                                  <label className="inline-flex cursor-pointer items-center gap-2 text-xs text-[#6E655F]">
+                                    <input
+                                      type="checkbox"
+                                      checked={bookingEditDraft.whatsappSameAsPhone}
+                                      onChange={e =>
+                                        setBookingEditDraft(prev => ({
+                                          ...prev,
+                                          whatsappSameAsPhone: e.target.checked,
+                                          whatsappCountryCode: e.target.checked
+                                            ? prev.phoneCountryCode
+                                            : prev.whatsappCountryCode || prev.phoneCountryCode,
+                                          whatsappNumber: e.target.checked
                                             ? ''
-                                            : prev.telegramValue,
-                                      }))
-                                    }
-                                    className="h-3.5 w-3.5 rounded border-[#E2D9CE] accent-[#1F1B18]"
-                                  />
-                                  <span>Same as Telegram number</span>
-                                </label>
+                                            : prev.whatsappNumber,
+                                        }))
+                                      }
+                                      className="h-3.5 w-3.5 rounded border-[#E2D9CE] accent-[#1F1B18]"
+                                    />
+                                    <span>Phone is also WhatsApp number</span>
+                                  </label>
+
+                                  <label className="inline-flex cursor-pointer items-center gap-2 text-xs text-[#6E655F]">
+                                    <input
+                                      type="checkbox"
+                                      checked={bookingEditDraft.telegramSameAsPhone}
+                                      onChange={e =>
+                                        setBookingEditDraft(prev => ({
+                                          ...prev,
+                                          telegramSameAsPhone: e.target.checked,
+                                          telegramMethod: e.target.checked
+                                            ? 'username'
+                                            : prev.telegramMethod,
+                                          telegramValue:
+                                            e.target.checked && prev.telegramMethod === 'phone'
+                                              ? ''
+                                              : prev.telegramValue,
+                                        }))
+                                      }
+                                      className="h-3.5 w-3.5 rounded border-[#E2D9CE] accent-[#1F1B18]"
+                                    />
+                                    <span>Same as Telegram number</span>
+                                  </label>
+                                </div>
                               </div>
 
                               <div>
@@ -1116,6 +1282,53 @@ export const ProfileSection: React.FC<ProfileSectionProps> = ({
                                 />
                               </div>
                             </div>
+
+                            {!bookingEditDraft.whatsappSameAsPhone ? (
+                              <div>
+                                <label
+                                  htmlFor={`edit-whatsapp-${booking.id}`}
+                                  className="mb-1 block text-[11px] font-semibold text-[#6E655F] uppercase"
+                                >
+                                  WhatsApp Number (for Team Confirmation)
+                                </label>
+                                <div className="flex gap-2">
+                                  <GlideSelect
+                                    options={countryCodeOptions}
+                                    value={bookingEditDraft.whatsappCountryCode}
+                                    onChange={code =>
+                                      setBookingEditDraft(prev => ({
+                                        ...prev,
+                                        whatsappCountryCode: code,
+                                      }))
+                                    }
+                                    showTags={false}
+                                    size="lg"
+                                    radius={8}
+                                    menuWidth={160}
+                                    surfaceColor="#FAF7F2"
+                                    highlightColor="#EFE9E0"
+                                    accentColor="#B68D5E"
+                                    textColor="#1F1B18"
+                                    ariaLabel="Edit WhatsApp country code"
+                                    className="w-28 shrink-0 sm:w-32"
+                                  />
+                                  <input
+                                    id={`edit-whatsapp-${booking.id}`}
+                                    type="tel"
+                                    inputMode="numeric"
+                                    value={bookingEditDraft.whatsappNumber}
+                                    onChange={e =>
+                                      setBookingEditDraft(prev => ({
+                                        ...prev,
+                                        whatsappNumber: sanitizePhoneDigits(e.target.value),
+                                      }))
+                                    }
+                                    placeholder="3105550199"
+                                    className="h-11 flex-1 rounded-lg border border-[#E2D9CE] bg-[#FAF7F2] px-3 text-sm text-[#1F1B18] tabular-nums"
+                                  />
+                                </div>
+                              </div>
+                            ) : null}
 
                             <div className="flex justify-end gap-2 pt-1">
                               <button

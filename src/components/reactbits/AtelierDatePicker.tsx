@@ -7,7 +7,13 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Clock } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
-import { buildCalendarMonthGrid, formatPreferredDateTime } from '../../utils/booking';
+import { CLINIC_CONFIG } from '../../config/clinicConfig';
+import {
+  buildCalendarMonthGrid,
+  formatPreferredDateTime,
+  isStudioWeekday,
+  resolveNextOpenStudioIsoDate,
+} from '../../utils/booking';
 import GlideSelect, { type GlideSelectOption } from './GlideSelect';
 
 export interface AtelierDatePickerProps {
@@ -120,6 +126,7 @@ export const AtelierDatePicker: React.FC<AtelierDatePickerProps> = ({
 
   const [open, setOpen] = useState(false);
   const [placement, setPlacement] = useState<'bottom' | 'top'>('bottom');
+  const [popoverMaxHeight, setPopoverMaxHeight] = useState<number>(440);
   const [cursor, setCursor] = useState<{ year: number; month: number }>({
     year: parsed.year,
     month: parsed.monthIndex,
@@ -135,11 +142,36 @@ export const AtelierDatePicker: React.FC<AtelierDatePickerProps> = ({
   }, [parsed.isoDate, parsed.year, parsed.monthIndex]);
 
   useLayoutEffect(() => {
-    if (!open || !rootRef.current) return;
-    const rect = rootRef.current.getBoundingClientRect();
-    const spaceBelow = window.innerHeight - rect.bottom;
-    const needed = mode === 'datetime' ? 390 : 320;
-    setPlacement(spaceBelow < needed && rect.top > needed ? 'top' : 'bottom');
+    if (!open) return undefined;
+
+    /**
+     * Keep calendar popover within the safe viewport below the fixed top header (max ~80px + 12px margin).
+     */
+    const updatePosition = () => {
+      if (!rootRef.current) return;
+      const rect = rootRef.current.getBoundingClientRect();
+      const headerSafeTop = window.innerWidth >= 768 ? 92 : 76;
+      const viewportMargin = 12;
+      const needed = mode === 'datetime' ? 390 : 320;
+      const spaceBelow = Math.max(0, window.innerHeight - rect.bottom - viewportMargin);
+      const spaceAbove = Math.max(0, rect.top - headerSafeTop);
+
+      const shouldFlipTop =
+        spaceBelow < needed && (spaceAbove >= needed || spaceAbove > spaceBelow);
+      const nextPlacement: 'bottom' | 'top' = shouldFlipTop ? 'top' : 'bottom';
+      const availableHeight = nextPlacement === 'top' ? spaceAbove : spaceBelow;
+
+      setPlacement(nextPlacement);
+      setPopoverMaxHeight(Math.max(220, Math.floor(availableHeight)));
+    };
+
+    updatePosition();
+    window.addEventListener('resize', updatePosition, { passive: true });
+    window.addEventListener('scroll', updatePosition, { passive: true, capture: true });
+    return () => {
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, { capture: true });
+    };
   }, [open, mode]);
 
   useEffect(() => {
@@ -187,9 +219,10 @@ export const AtelierDatePicker: React.FC<AtelierDatePickerProps> = ({
 
   /**
    * Handle picking a date cell inside the calendar grid.
-   * Inputs: isoDate string (YYYY-MM-DD).
+   * Inputs: isoDate string (YYYY-MM-DD), disabled flag for closed Sat/Sun in booking mode.
    */
-  const handleSelectDay = (isoDate: string) => {
+  const handleSelectDay = (isoDate: string, isDisabledDay: boolean) => {
+    if (isDisabledDay) return;
     if (mode === 'date') {
       onChange(isoDate);
       setOpen(false);
@@ -200,14 +233,16 @@ export const AtelierDatePicker: React.FC<AtelierDatePickerProps> = ({
   };
 
   /**
-   * Handle clicking a clinic time slot in datetime mode.
+   * Handle clicking a clinic time slot in datetime mode, ensuring date lands on Mon–Fri.
    * Inputs: HH:mm string.
    */
   const handleSelectTime = (timeSlot: string) => {
-    const fallbackIso =
-      parsed.isoDate ||
-      `${cursor.year}-${String(cursor.month + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`;
-    onChange(`${fallbackIso}T${timeSlot}`);
+    const safeIso = resolveNextOpenStudioIsoDate(
+      parsed.isoDate && isStudioWeekday(parsed.isoDate) ? parsed.isoDate : '',
+      cursor.year,
+      cursor.month
+    );
+    onChange(`${safeIso}T${timeSlot}`);
     setOpen(false);
   };
 
@@ -272,9 +307,10 @@ export const AtelierDatePicker: React.FC<AtelierDatePickerProps> = ({
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.96, y: placement === 'bottom' ? -4 : 4 }}
             transition={{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }}
-            className={`absolute left-0 z-50 w-[min(330px,calc(100vw-2.5rem))] rounded-xl border border-[#E2D9CE] bg-[#FAF7F2] p-3.5 text-[#1F1B18] [box-shadow:0_12px_32px_color-mix(in_srgb,#1F1B18_14%,transparent)] ${
+            className={`absolute left-0 z-30 w-[min(330px,calc(100vw-2.5rem))] overflow-y-auto rounded-xl border border-[#E2D9CE] bg-[#FAF7F2] p-3.5 text-[#1F1B18] [box-shadow:0_12px_32px_color-mix(in_srgb,#1F1B18_14%,transparent)] ${
               placement === 'bottom' ? 'top-[calc(100%+6px)]' : 'bottom-[calc(100%+6px)]'
             }`}
+            style={{ maxHeight: `${popoverMaxHeight}px` }}
             role="dialog"
             aria-label="Interactive clinic calendar"
           >
@@ -335,30 +371,44 @@ export const AtelierDatePicker: React.FC<AtelierDatePickerProps> = ({
 
             {/* Weekday Header */}
             <div className="mt-2.5 grid grid-cols-7 gap-1 text-center text-[10px] font-semibold tracking-[0.1em] text-[#6E655F] uppercase">
-              {WEEKDAYS.map(day => (
-                <div key={day} className="py-1">
-                  {day}
-                </div>
-              ))}
+              {WEEKDAYS.map((day, idx) => {
+                const isClosedHeader = mode === 'datetime' && (idx === 0 || idx === 6);
+                return (
+                  <div
+                    key={day}
+                    title={isClosedHeader ? 'Closed Sat & Sun' : undefined}
+                    className={`py-1 ${isClosedHeader ? 'text-[#6E655F]/40 line-through' : ''}`}
+                  >
+                    {day}
+                  </div>
+                );
+              })}
             </div>
 
             {/* Day Grid */}
             <div className="grid grid-cols-7 gap-1">
               {grid.map(cell => {
-                const isSelected = parsed.isoDate === cell.isoDate;
+                const isWeekend = cell.dayOfWeek === 0 || cell.dayOfWeek === 6;
+                const isDisabledDay = mode === 'datetime' && isWeekend;
+                const isSelected = parsed.isoDate === cell.isoDate && !isDisabledDay;
                 return (
                   <button
                     key={cell.isoDate}
                     type="button"
-                    onClick={() => handleSelectDay(cell.isoDate)}
-                    className={`flex h-8 w-full cursor-pointer items-center justify-center rounded-lg text-xs tabular-nums transition-colors ${
-                      isSelected
-                        ? 'bg-[#1F1B18] font-semibold text-[#FAF7F2]'
-                        : cell.isToday
-                          ? 'border border-[#B68D5E] bg-[#EFE9E0] font-semibold text-[#1F1B18]'
-                          : cell.inCurrentMonth
-                            ? 'text-[#1F1B18] hover:bg-[#EFE9E0]'
-                            : 'text-[#6E655F]/45 hover:bg-[#EFE9E0]/50'
+                    disabled={isDisabledDay}
+                    aria-label={`${cell.isoDate}${isDisabledDay ? ' (Closed)' : ''}`}
+                    title={isDisabledDay ? 'Studio closed Saturday & Sunday' : undefined}
+                    onClick={() => handleSelectDay(cell.isoDate, isDisabledDay)}
+                    className={`flex h-8 w-full items-center justify-center rounded-lg text-xs tabular-nums transition-colors ${
+                      isDisabledDay
+                        ? 'cursor-not-allowed bg-[#EFE9E0]/35 text-[#6E655F]/30 line-through'
+                        : isSelected
+                          ? 'cursor-pointer bg-[#1F1B18] font-semibold text-[#FAF7F2]'
+                          : cell.isToday
+                            ? 'cursor-pointer border border-[#B68D5E] bg-[#EFE9E0] font-semibold text-[#1F1B18]'
+                            : cell.inCurrentMonth
+                              ? 'cursor-pointer text-[#1F1B18] hover:bg-[#EFE9E0]'
+                              : 'cursor-pointer text-[#6E655F]/45 hover:bg-[#EFE9E0]/50'
                     }`}
                   >
                     {cell.dayNumber}
@@ -375,7 +425,7 @@ export const AtelierDatePicker: React.FC<AtelierDatePickerProps> = ({
                     <Clock className="h-3 w-3 text-[#B68D5E]" />
                     Studio Hours
                   </span>
-                  <span>Mon–Sat · 10 AM – 7 PM</span>
+                  <span>{CLINIC_CONFIG.hoursShort}</span>
                 </div>
                 <div className="grid grid-cols-3 gap-1.5">
                   {CLINIC_TIME_SLOTS.map(slot => {

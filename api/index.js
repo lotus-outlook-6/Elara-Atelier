@@ -22897,10 +22897,6 @@ var import_node_fs2 = __toESM(require("node:fs"), 1);
 var import_node_path2 = __toESM(require("node:path"), 1);
 var import_node_url = require("node:url");
 
-// src/server/conciergeStore.ts
-var import_node_fs = __toESM(require("node:fs"), 1);
-var import_node_path = __toESM(require("node:path"), 1);
-
 // src/config/clinicConfig.ts
 var CLINIC_CONFIG = {
   brandName: "ELARA ATELIER",
@@ -22912,23 +22908,29 @@ var CLINIC_CONFIG = {
   phoneHref: "tel:+13105550194",
   whatsappNumber: "13105550194",
   email: "concierge@elara-atelier.com",
-  hoursSummary: "Mon\u2013Sat, 10:00 AM \u2013 7:00 PM",
-  hoursShort: "Mon\u2013Sat \xB7 10 AM \u2013 7 PM",
+  hoursSummary: "Mon\u2013Fri, 10:00 AM \u2013 7:00 PM",
+  hoursShort: "Mon\u2013Fri \xB7 10 AM \u2013 7 PM",
   hoursDetail: [
     { days: "Monday \u2013 Friday", time: "10:00 AM \u2013 7:00 PM" },
-    { days: "Saturday", time: "10:00 AM \u2013 5:00 PM" },
-    { days: "Sunday", time: "By Private Appointment" }
+    { days: "Saturday & Sunday", time: "Closed" }
   ],
   mapsEmbedUrl: "https://www.google.com/maps?q=Beverly+Hills,+CA+90210&output=embed",
   mapsExternalUrl: "https://maps.google.com/?q=Beverly+Hills,+CA+90210",
+  studioCoordinates: { lat: 34.0736, lng: -118.4004 },
   hydrationDurationMs: 650,
   submissionDelayMs: 900,
   minPatientAge: 18,
   bookingEditWindowMs: 4 * 60 * 60 * 1e3,
-  defaultTelegramBotUsername: "ElaraAtelierBot"
+  defaultTelegramBotUsername: "ElaraAtelierBot",
+  defaultTeamBotUsername: "ElaraAtelierTeamBot",
+  clinicTimeZone: "America/Los_Angeles",
+  eodPdfHour: 19,
+  eodPdfMinute: 15
 };
 
 // src/server/conciergeStore.ts
+var import_node_fs = __toESM(require("node:fs"), 1);
+var import_node_path = __toESM(require("node:path"), 1);
 function normalizeTelegramHandle(raw) {
   if (!raw) return "";
   const cleaned = raw.trim().replace(/^@+/, "").toLowerCase();
@@ -22958,7 +22960,8 @@ var ConciergeStore = class {
       profiles: {},
       bookings: {},
       chats: {},
-      messages: []
+      messages: [],
+      teamChatIds: []
     };
     this.storePath = storePath;
     this.loadFromDisk();
@@ -22973,11 +22976,19 @@ var ConciergeStore = class {
           profiles: parsed.profiles && typeof parsed.profiles === "object" ? parsed.profiles : {},
           bookings: parsed.bookings && typeof parsed.bookings === "object" ? parsed.bookings : {},
           chats: parsed.chats && typeof parsed.chats === "object" ? parsed.chats : {},
-          messages: Array.isArray(parsed.messages) ? parsed.messages : []
+          messages: Array.isArray(parsed.messages) ? parsed.messages : [],
+          teamChatIds: Array.isArray(parsed.teamChatIds) ? parsed.teamChatIds.map((id) => String(id).trim()).filter(Boolean) : [],
+          lastDailyPdfSentForDate: typeof parsed.lastDailyPdfSentForDate === "string" ? parsed.lastDailyPdfSentForDate : void 0
         };
       }
     } catch {
-      this.data = { profiles: {}, bookings: {}, chats: {}, messages: [] };
+      this.data = {
+        profiles: {},
+        bookings: {},
+        chats: {},
+        messages: [],
+        teamChatIds: []
+      };
     }
   }
   saveToDisk() {
@@ -23301,7 +23312,385 @@ var ConciergeStore = class {
     const linkedChatId = this.getLinkedChatIdForUser(userId);
     return this.data.messages.filter((msg) => msg.userId === userId || Boolean(linkedChatId) && msg.chatId === linkedChatId).sort((a, b) => a.createdAtMs - b.createdAtMs);
   }
+  /**
+   * Register a doctor or clinical team Telegram chatId so the Team Bot delivers individual booking alerts and EOD PDFs.
+   * Inputs: numeric/string Telegram chatId.
+   * Output: deduplicated list of registered team chatIds.
+   */
+  registerTeamChat(chatId) {
+    const clean = String(chatId || "").trim();
+    if (!clean) return [...this.data.teamChatIds];
+    if (!this.data.teamChatIds.includes(clean)) {
+      this.data.teamChatIds.push(clean);
+      this.saveToDisk();
+    }
+    return [...this.data.teamChatIds];
+  }
+  /**
+   * Resolve all team Telegram chatIds by combining env config (comma-separated allowed) and registered chats.
+   * Inputs: optional envChatIds string (e.g. process.env.TELEGRAM_TEAM_CHAT_ID).
+   * Output: deduplicated non-empty chatId array.
+   */
+  getTeamChatIds(envChatIds) {
+    const combined = /* @__PURE__ */ new Set();
+    if (envChatIds) {
+      for (const part of envChatIds.split(",")) {
+        const trimmed = part.trim();
+        if (trimmed) combined.add(trimmed);
+      }
+    }
+    for (const stored of this.data.teamChatIds) {
+      if (stored.trim()) combined.add(stored.trim());
+    }
+    return Array.from(combined);
+  }
+  /**
+   * Return the YYYY-MM-DD schedule date for which the end-of-day PDF digest was last sent.
+   * Output: ISO date string or undefined.
+   */
+  getLastDailyPdfSentForDate() {
+    return this.data.lastDailyPdfSentForDate;
+  }
+  /**
+   * Mark a target schedule date (YYYY-MM-DD) as having had its PDF digest delivered to the Team Bot.
+   * Inputs: targetIsoDate string.
+   */
+  markDailyPdfSent(targetIsoDate) {
+    this.data.lastDailyPdfSentForDate = targetIsoDate;
+    this.saveToDisk();
+  }
+  /**
+   * Return all bookings scheduled on a specific YYYY-MM-DD date sorted chronologically.
+   * Inputs: isoDate ('YYYY-MM-DD'), optional includeCancelled boolean (default false).
+   * Output: sorted ConciergeBookingRecord array.
+   */
+  getBookingsForDate(isoDate, includeCancelled = false) {
+    return Object.values(this.data.bookings).filter((b) => b.preferredDateTime.startsWith(isoDate) && (includeCancelled || b.status !== "cancelled")).sort((a, b) => {
+      const cmp = a.preferredDateTime.localeCompare(b.preferredDateTime);
+      return cmp !== 0 ? cmp : a.createdAtMs - b.createdAtMs;
+    });
+  }
+  /**
+   * Return all active bookings currently awaiting team confirmation ('requested'), sorted chronologically.
+   * Output: sorted ConciergeBookingRecord array.
+   */
+  getPendingBookings() {
+    return Object.values(this.data.bookings).filter((b) => b.status === "requested").sort((a, b) => a.preferredDateTime.localeCompare(b.preferredDateTime));
+  }
+  /**
+   * Update a booking's confirmation or cancellation status initiated by the clinical team from the Team Bot.
+   * Inputs: bookingId string, next status ('confirmed' | 'cancelled'), optional nowMs.
+   * Output: { ok: true, booking } or { ok: false, error }.
+   */
+  updateBookingStatusFromTeam(bookingId, status, nowMs = Date.now()) {
+    const booking = this.data.bookings[bookingId];
+    if (!booking) {
+      return { ok: false, error: "Booking record could not be found." };
+    }
+    if (booking.status === "cancelled" && status === "confirmed") {
+      return { ok: false, error: "This appointment was already cancelled." };
+    }
+    booking.status = status;
+    booking.updatedAtMs = nowMs;
+    booking.botUpdatedAtMs = nowMs;
+    booking.updatedVia = "telegram_bot";
+    this.saveToDisk();
+    return { ok: true, booking };
+  }
 };
+
+// src/server/pdfSchedule.ts
+function getClinicDateTimeParts(referenceDate = /* @__PURE__ */ new Date(), timeZone = CLINIC_CONFIG.clinicTimeZone) {
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  });
+  const parts = formatter.formatToParts(referenceDate);
+  const pick = (type) => {
+    const val = parts.find((p) => p.type === type)?.value || "0";
+    return Number(val);
+  };
+  const year = pick("year");
+  const month = pick("month");
+  const day = pick("day");
+  const rawHour = pick("hour");
+  const hour = rawHour === 24 ? 0 : rawHour;
+  const minute = pick("minute");
+  const localNoonUtc = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+  const weekday = localNoonUtc.getUTCDay();
+  const isoDate = `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  return { year, month, day, hour, minute, weekday, isoDate };
+}
+function getNextClinicDateIso(referenceDate = /* @__PURE__ */ new Date(), timeZone = CLINIC_CONFIG.clinicTimeZone, skipWeekends = true) {
+  const localNow = getClinicDateTimeParts(referenceDate, timeZone);
+  let cursor = new Date(Date.UTC(localNow.year, localNow.month - 1, localNow.day + 1, 12, 0, 0));
+  let skippedWeekend = false;
+  if (skipWeekends) {
+    while (cursor.getUTCDay() === 0 || cursor.getUTCDay() === 6) {
+      skippedWeekend = true;
+      cursor = new Date(
+        Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth(), cursor.getUTCDate() + 1, 12, 0, 0)
+      );
+    }
+  }
+  const yyyy = cursor.getUTCFullYear();
+  const mm = String(cursor.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(cursor.getUTCDate()).padStart(2, "0");
+  const targetIsoDate = `${yyyy}-${mm}-${dd}`;
+  const displayDateLabel = cursor.toLocaleDateString("en-US", {
+    timeZone: "UTC",
+    weekday: "long",
+    month: "short",
+    day: "numeric",
+    year: "numeric"
+  });
+  return {
+    targetIsoDate,
+    displayDateLabel,
+    skippedWeekend
+  };
+}
+function filterBookingsForDate(bookings, targetIsoDate) {
+  return bookings.filter((b) => b.status !== "cancelled" && b.preferredDateTime.startsWith(targetIsoDate)).slice().sort((a, b) => a.preferredDateTime.localeCompare(b.preferredDateTime));
+}
+function formatTimeShort(isoDateTime) {
+  const match = /T(\d{2}):(\d{2})$/.exec(isoDateTime.trim());
+  if (!match) return isoDateTime || "TBD";
+  const hour24 = Number(match[1]);
+  const minute = match[2];
+  const suffix = hour24 >= 12 ? "PM" : "AM";
+  const hour12 = hour24 % 12 || 12;
+  return `${hour12}:${minute} ${suffix}`;
+}
+function toPdfLiteral(raw, maxChars = 120) {
+  const normalized = raw.replace(/[–—]/g, "-").replace(/[•·]/g, "|").replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/[^\x20-\x7E]/g, " ").replace(/\s+/g, " ").trim();
+  const clipped = normalized.length > maxChars ? `${normalized.slice(0, Math.max(1, maxChars - 3))}...` : normalized;
+  return clipped.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
+}
+function wrapTextLines(raw, maxCharsPerLine, maxLines = 2) {
+  const clean = raw.replace(/\s+/g, " ").trim();
+  if (!clean) return ["-"];
+  const words = clean.split(" ");
+  const lines = [];
+  let current = "";
+  for (const word of words) {
+    const candidate = current ? `${current} ${word}` : word;
+    if (candidate.length <= maxCharsPerLine) {
+      current = candidate;
+    } else {
+      if (current) lines.push(current);
+      if (lines.length >= maxLines) break;
+      current = word.slice(0, maxCharsPerLine);
+    }
+  }
+  if (current && lines.length < maxLines) {
+    lines.push(current);
+  }
+  if (lines.length === maxLines && clean.length > lines.join(" ").length + 2) {
+    const last = lines[maxLines - 1];
+    lines[maxLines - 1] = last.length > maxCharsPerLine - 3 ? `${last.slice(0, maxCharsPerLine - 3)}...` : `${last}...`;
+  }
+  return lines;
+}
+function pdfText(ops, fontKey, fontSize, x, y, text, rgb = [0.12, 0.11, 0.09], maxChars = 120) {
+  ops.push(
+    `${rgb[0].toFixed(2)} ${rgb[1].toFixed(2)} ${rgb[2].toFixed(2)} rg`,
+    `BT /${fontKey} ${fontSize} Tf 1 0 0 1 ${x.toFixed(1)} ${y.toFixed(1)} Tm (${toPdfLiteral(text, maxChars)}) Tj ET`
+  );
+}
+function generatePatientSchedulePdf(input) {
+  const clinicName = input.clinicName || CLINIC_CONFIG.fullTitle;
+  const clinicAddress = input.clinicAddress || `${CLINIC_CONFIG.addressLine1}, ${CLINIC_CONFIG.addressLine2}`;
+  const dateLabel = input.displayDateLabel || input.targetDateIso;
+  const sortedBookings = filterBookingsForDate(input.bookings, input.targetDateIso);
+  const generatedLabel = input.generatedAtLabel || `${(/* @__PURE__ */ new Date()).toLocaleString("en-US", { timeZone: CLINIC_CONFIG.clinicTimeZone })} PT`;
+  const rowsPerPage = 13;
+  const totalPages = Math.max(1, Math.ceil(sortedBookings.length / rowsPerPage));
+  const pageStreams = [];
+  for (let pageIdx = 0; pageIdx < totalPages; pageIdx += 1) {
+    const ops = [];
+    const pageRows = sortedBookings.slice(pageIdx * rowsPerPage, (pageIdx + 1) * rowsPerPage);
+    ops.push("0.94 0.91 0.88 rg 36 690 540 68 re f");
+    ops.push("0.71 0.55 0.37 RG 0.9 w 36 690 540 68 re S");
+    pdfText(ops, "F2", 15, 50, 735, clinicName.toUpperCase(), [0.12, 0.11, 0.09], 80);
+    pdfText(ops, "F1", 10, 50, 717, `Next-Day Patient Consultation Schedule  |  ${clinicAddress}`, [0.43, 0.4, 0.37], 95);
+    pdfText(
+      ops,
+      "F2",
+      10,
+      50,
+      700,
+      `Visit Date: ${dateLabel}   |   Confirmed/Requested Patients: ${sortedBookings.length}`,
+      [0.12, 0.11, 0.09],
+      95
+    );
+    const headerY = 660;
+    ops.push("0.12 0.11 0.09 rg 36 654 540 22 re f");
+    pdfText(ops, "F2", 8.5, 44, headerY + 1, "#", [0.98, 0.97, 0.95], 6);
+    pdfText(ops, "F2", 8.5, 64, headerY + 1, "TIME", [0.98, 0.97, 0.95], 12);
+    pdfText(ops, "F2", 8.5, 122, headerY + 1, "PATIENT", [0.98, 0.97, 0.95], 24);
+    pdfText(ops, "F2", 8.5, 240, headerY + 1, "TREATMENT", [0.98, 0.97, 0.95], 34);
+    pdfText(ops, "F2", 8.5, 396, headerY + 1, "WHATSAPP", [0.98, 0.97, 0.95], 22);
+    pdfText(ops, "F2", 8.5, 498, headerY + 1, "STATUS", [0.98, 0.97, 0.95], 16);
+    if (pageRows.length === 0) {
+      ops.push("0.98 0.97 0.95 rg 36 594 540 48 re f");
+      ops.push("0.89 0.85 0.81 RG 0.6 w 36 594 540 48 re S");
+      pdfText(
+        ops,
+        "F1",
+        10.5,
+        50,
+        614,
+        `No active patient consultations are scheduled for ${dateLabel}.`,
+        [0.43, 0.4, 0.37],
+        90
+      );
+    } else {
+      let rowTop = 650;
+      const rowHeight = 44;
+      pageRows.forEach((booking, localIdx) => {
+        const globalIdx = pageIdx * rowsPerPage + localIdx + 1;
+        const rowBottom = rowTop - rowHeight;
+        if (localIdx % 2 === 1) {
+          ops.push(`0.97 0.95 0.93 rg 36 ${rowBottom.toFixed(1)} 540 ${rowHeight} re f`);
+        }
+        ops.push(`0.89 0.85 0.81 RG 0.5 w 36 ${rowBottom.toFixed(1)} m 576 ${rowBottom.toFixed(1)} l S`);
+        const primaryY = rowTop - 16;
+        const secondaryY = rowTop - 30;
+        pdfText(ops, "F2", 9, 44, primaryY, String(globalIdx), [0.43, 0.4, 0.37], 6);
+        pdfText(ops, "F2", 9, 64, primaryY, formatTimeShort(booking.preferredDateTime), [0.12, 0.11, 0.09], 12);
+        const nameLines = wrapTextLines(booking.fullName || "Guest", 20, 2);
+        pdfText(ops, "F2", 9, 122, primaryY, nameLines[0], [0.12, 0.11, 0.09], 24);
+        if (nameLines[1]) {
+          pdfText(ops, "F1", 8, 122, secondaryY, nameLines[1], [0.43, 0.4, 0.37], 26);
+        }
+        const treatmentLines = wrapTextLines(booking.treatmentName || "Consultation", 27, 2);
+        pdfText(ops, "F1", 8.5, 240, primaryY, treatmentLines[0], [0.12, 0.11, 0.09], 30);
+        if (treatmentLines[1]) {
+          pdfText(ops, "F1", 8, 240, secondaryY, treatmentLines[1], [0.43, 0.4, 0.37], 30);
+        }
+        const waCode = booking.whatsappCountryCode || booking.phoneCountryCode || "+1";
+        const waNum = booking.whatsappNumber || booking.phoneNumber || "";
+        const waDisplay = waNum ? `${waCode} ${waNum}` : "Not set";
+        pdfText(ops, "F2", 8.5, 396, primaryY, waDisplay, [0.12, 0.11, 0.09], 20);
+        pdfText(
+          ops,
+          "F1",
+          7.5,
+          396,
+          secondaryY,
+          booking.telegramValue ? `TG: ${booking.telegramValue}` : `Ph: ${booking.phoneCountryCode} ${booking.phoneNumber}`,
+          [0.43, 0.4, 0.37],
+          22
+        );
+        const statusRgb = booking.status === "confirmed" ? [0.29, 0.42, 0.31] : [0.71, 0.55, 0.37];
+        pdfText(ops, "F2", 8.5, 498, primaryY, booking.status.toUpperCase(), statusRgb, 14);
+        pdfText(ops, "F1", 7, 498, secondaryY, booking.id.slice(0, 14), [0.43, 0.4, 0.37], 16);
+        rowTop = rowBottom;
+      });
+    }
+    ops.push("0.89 0.85 0.81 RG 0.5 w 36 48 m 576 48 l S");
+    pdfText(
+      ops,
+      "F1",
+      8,
+      36,
+      34,
+      `Elara Atelier Clinical Team Roster  |  Generated: ${generatedLabel}`,
+      [0.43, 0.4, 0.37],
+      95
+    );
+    pdfText(
+      ops,
+      "F2",
+      8,
+      516,
+      34,
+      `Page ${pageIdx + 1} of ${totalPages}`,
+      [0.43, 0.4, 0.37],
+      20
+    );
+    pageStreams.push(ops.join("\n"));
+  }
+  const objects = [];
+  const pageObjNums = [];
+  for (let i = 0; i < pageStreams.length; i += 1) {
+    const pageObjNum = 5 + i * 2;
+    const contentObjNum = 6 + i * 2;
+    pageObjNums.push(pageObjNum);
+  }
+  objects.push(`1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+`);
+  objects.push(
+    `2 0 obj
+<< /Type /Pages /Kids [${pageObjNums.map((n) => `${n} 0 R`).join(" ")}] /Count ${pageObjNums.length} >>
+endobj
+`
+  );
+  objects.push(`3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+`);
+  objects.push(`4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>
+endobj
+`);
+  for (let i = 0; i < pageStreams.length; i += 1) {
+    const pageObjNum = 5 + i * 2;
+    const contentObjNum = 6 + i * 2;
+    const streamStr = pageStreams[i];
+    const streamLen = Buffer.byteLength(streamStr, "utf8");
+    objects.push(
+      `${pageObjNum} 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents ${contentObjNum} 0 R >>
+endobj
+`
+    );
+    objects.push(
+      `${contentObjNum} 0 obj
+<< /Length ${streamLen} >>
+stream
+${streamStr}
+endstream
+endobj
+`
+    );
+  }
+  const header = "%PDF-1.4\n%\xE2\xE3\xCF\xD3\n";
+  const chunks = [Buffer.from(header, "binary")];
+  let byteOffset = chunks[0].length;
+  const offsets = [0];
+  for (const objStr of objects) {
+    offsets.push(byteOffset);
+    const objBuf = Buffer.from(objStr, "utf8");
+    chunks.push(objBuf);
+    byteOffset += objBuf.length;
+  }
+  const xrefOffset = byteOffset;
+  const xrefLines = [`xref
+0 ${offsets.length}
+0000000000 65535 f 
+`];
+  for (let i = 1; i < offsets.length; i += 1) {
+    xrefLines.push(`${String(offsets[i]).padStart(10, "0")} 00000 n 
+`);
+  }
+  const trailer = `trailer
+<< /Size ${offsets.length} /Root 1 0 R >>
+startxref
+${xrefOffset}
+%%EOF
+`;
+  chunks.push(Buffer.from(xrefLines.join("") + trailer, "utf8"));
+  return Buffer.concat(chunks);
+}
 
 // src/data/clinicData.ts
 var TREATMENT_CATEGORIES = [
@@ -23317,7 +23706,7 @@ var TREATMENTS = [
     name: "Cheek & Jawline Contouring",
     benefit: "Doctor-guided filler appointment to gently lift cheekbones and define your jawline without surgery.",
     duration: "45 min visit",
-    startingPrice: "$1,150",
+    startingPrice: "$450",
     colSpan: 2
   },
   {
@@ -23326,7 +23715,7 @@ var TREATMENTS = [
     name: "Wrinkle Relaxing Injections",
     benefit: "Quick targeted injections that smooth forehead creases and crow\u2019s feet while keeping natural facial expressions.",
     duration: "30 min visit",
-    startingPrice: "$480"
+    startingPrice: "$140"
   },
   {
     id: "fa-lip-architecture",
@@ -23334,7 +23723,7 @@ var TREATMENTS = [
     name: "Natural Lip Shaping & Hydration",
     benefit: "Soft lip filler appointment that adds gentle fullness, smooths dry lines, and keeps your smile balanced.",
     duration: "40 min visit",
-    startingPrice: "$790"
+    startingPrice: "$260"
   },
   {
     id: "fa-biostimulator",
@@ -23342,7 +23731,7 @@ var TREATMENTS = [
     name: "Collagen Skin-Firming Session",
     benefit: "Non-surgical treatment that boosts natural collagen to gradually firm cheeks, smile lines, and jawline.",
     duration: "50 min visit",
-    startingPrice: "$1,450",
+    startingPrice: "$420",
     colSpan: 2
   },
   // Cosmetic Dentistry
@@ -23352,7 +23741,7 @@ var TREATMENTS = [
     name: "Porcelain Veneers (Smile Makeover)",
     benefit: "Custom ultra-thin porcelain shells bonded to the front of your teeth to fix chips, gaps, and deep discoloration.",
     duration: "2 visits \xB7 14 days",
-    startingPrice: "$1,950 / tooth",
+    startingPrice: "$240",
     colSpan: 2
   },
   {
@@ -23361,7 +23750,7 @@ var TREATMENTS = [
     name: "3D Digital Smile Preview",
     benefit: "Painless 3D mouth scan and preview session letting you see your new tooth shape before starting any dental work.",
     duration: "60 min visit",
-    startingPrice: "$420"
+    startingPrice: "$60"
   },
   {
     id: "cd-whitening",
@@ -23369,7 +23758,7 @@ var TREATMENTS = [
     name: "In-Chair Laser Teeth Whitening",
     benefit: "Dentist-supervised whitening session that safely lifts years of coffee, tea, and wine stains in a single appointment.",
     duration: "75 min visit",
-    startingPrice: "$690"
+    startingPrice: "$150"
   },
   {
     id: "cd-aligners",
@@ -23377,7 +23766,7 @@ var TREATMENTS = [
     name: "Clear Orthodontic Aligners",
     benefit: "Custom clear removable trays fitted by our dental team to gradually straighten crowded or gapped teeth discreetly.",
     duration: "4\u20138 months",
-    startingPrice: "$4,200",
+    startingPrice: "$950",
     colSpan: 2
   },
   // Skin Renewal
@@ -23387,7 +23776,7 @@ var TREATMENTS = [
     name: "Under-Eye Renewal Treatment",
     benefit: "Gentle under-eye micro-infusion that brightens dark circles, softens hollows, and smooths fine lines.",
     duration: "45 min visit",
-    startingPrice: "$880",
+    startingPrice: "$180",
     colSpan: 2
   },
   {
@@ -23396,7 +23785,7 @@ var TREATMENTS = [
     name: "RF Microneedling Skin Tightening",
     benefit: "Tiny needles paired with gentle warmth to tighten pores, smooth acne scars, and firm facial skin.",
     duration: "60 min visit",
-    startingPrice: "$1,050"
+    startingPrice: "$220"
   },
   {
     id: "sl-laser-toning",
@@ -23404,7 +23793,7 @@ var TREATMENTS = [
     name: "Tone & Sun-Spot Laser Facial",
     benefit: "Zero-downtime laser session performed by our skin specialist to fade sun spots, uneven tone, and redness.",
     duration: "45 min visit",
-    startingPrice: "$650"
+    startingPrice: "$95"
   },
   {
     id: "sl-barrier-infusion",
@@ -23412,10 +23801,43 @@ var TREATMENTS = [
     name: "Sculpting Facial & Cooling Therapy",
     benefit: "Hands-on sculpting massage and cooling therapy to reduce morning puffiness, calm redness, and hydrate skin.",
     duration: "75 min visit",
-    startingPrice: "$490",
+    startingPrice: "$75",
     colSpan: 2
   }
 ];
+
+// src/utils/booking.ts
+function formatPreferredDateTime(raw) {
+  if (!raw.trim()) return "";
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return raw.trim();
+  return parsed.toLocaleString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
+  });
+}
+function buildTeamWhatsAppConfirmationUrl(input) {
+  const cleanDigits = input.whatsappDigits.replace(/\D/g, "");
+  const formattedTime = formatPreferredDateTime(input.preferredDateTime) || input.preferredDateTime;
+  const clinicName = input.clinicName || CLINIC_CONFIG.brandName;
+  const clinicAddress = input.clinicAddress || `${CLINIC_CONFIG.addressLine1}, ${CLINIC_CONFIG.addressLine2}`;
+  const patientFirstOrFull = input.patientName.trim() || "Guest";
+  const message = [
+    `Hello ${patientFirstOrFull},`,
+    ``,
+    `Your consultation at *${clinicName}* has been *CONFIRMED*.`,
+    ``,
+    `\u2022 *Treatment:* ${input.treatmentName}`,
+    `\u2022 *Date & Time:* ${formattedTime}`,
+    `\u2022 *Studio Location:* ${clinicAddress}`,
+    ``,
+    `Please reply YES to confirm you received this message or let us know if you need any assistance before your visit.`
+  ].join("\n");
+  return `https://wa.me/${cleanDigits}?text=${encodeURIComponent(message)}`;
+}
 
 // src/server/telegramBot.ts
 var MENU_BUTTON_LABELS = {
@@ -23476,9 +23898,10 @@ function getUpcomingClinicDates(referenceDate = /* @__PURE__ */ new Date()) {
     referenceDate.getMonth(),
     referenceDate.getDate()
   );
-  for (let i = 0; i < 12 && dates.length < 6; i += 1) {
+  for (let i = 0; i < 16 && dates.length < 6; i += 1) {
     const candidate = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate() + i + 1);
-    if (candidate.getDay() === 0) continue;
+    const weekday = candidate.getDay();
+    if (weekday === 0 || weekday === 6) continue;
     const yyyy = candidate.getFullYear();
     const mm = String(candidate.getMonth() + 1).padStart(2, "0");
     const dd = String(candidate.getDate()).padStart(2, "0");
@@ -23508,11 +23931,11 @@ function parseCustomClinicDateTime(raw) {
   if (Number.isNaN(dt.getTime()) || dt.getFullYear() !== year || dt.getMonth() !== month - 1 || dt.getDate() !== day || hour < 0 || hour > 23 || minute < 0 || minute > 59) {
     return { ok: false, error: "That calendar date or time is invalid." };
   }
-  if (dt.getDay() === 0) {
-    return { ok: false, error: "Sundays are by private appointment only. Please choose Mon\u2013Sat." };
+  if (dt.getDay() === 0 || dt.getDay() === 6) {
+    return { ok: false, error: "Saturday and Sunday are closed. Please choose Mon\u2013Fri." };
   }
   if (hour < 10 || hour > 18 || hour === 18 && minute > 30) {
-    return { ok: false, error: "Studio hours are Mon\u2013Sat, 10:00 AM \u2013 7:00 PM (last slot 18:30)." };
+    return { ok: false, error: "Studio hours are Mon\u2013Fri, 10:00 AM \u2013 7:00 PM (last slot 18:30)." };
   }
   const iso = `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
   return { ok: true, iso };
@@ -23604,8 +24027,7 @@ function buildClinicDetailsText() {
     `<b>Address:</b> ${escapeTelegramHtml(CLINIC_CONFIG.addressLine1)}, ${escapeTelegramHtml(CLINIC_CONFIG.addressLine2)}`,
     `<b>Hours:</b> ${escapeTelegramHtml(CLINIC_CONFIG.hoursSummary)}`,
     `\u2022 Mon\u2013Fri: 10:00 AM \u2013 7:00 PM`,
-    `\u2022 Saturday: 10:00 AM \u2013 5:00 PM`,
-    `\u2022 Sunday: By Private Appointment`,
+    `\u2022 Sat &amp; Sun: Closed`,
     `<b>Direct Concierge:</b> ${escapeTelegramHtml(CLINIC_CONFIG.phoneDisplay)}`,
     `<b>Email:</b> ${escapeTelegramHtml(CLINIC_CONFIG.email)}`
   ].join("\n");
@@ -23859,7 +24281,7 @@ function processTelegramUpdate(store, update, nowMs = Date.now()) {
           `<b>Reschedule \xB7 ${escapeTelegramHtml(target.treatmentName)}</b>`,
           `Current Time: <b>${escapeTelegramHtml(formatBotDateTime(target.preferredDateTime))}</b>`,
           ``,
-          `Select a new clinic day (Mon\u2013Sat):`
+          `Select a new clinic day (Mon\u2013Fri):`
         ].join("\n"),
         { inline_keyboard: rows }
       );
@@ -23952,7 +24374,7 @@ function processTelegramUpdate(store, update, nowMs = Date.now()) {
       editOrSend(
         [
           `<b>Enter Custom Visit Time</b>`,
-          `Reply with your preferred clinic date and time (Mon\u2013Sat, 10:00\u201318:30) as:`,
+          `Reply with your preferred clinic date and time (Mon\u2013Fri, 10:00\u201318:30) as:`,
           `<code>YYYY-MM-DD HH:MM</code> (example: <code>2026-11-20 14:30</code>)`
         ].join("\n"),
         { inline_keyboard: [[{ text: "Cancel", callback_data: "cb:list" }]] }
@@ -24170,7 +24592,7 @@ Tap <b>Verify Phone Number</b> below if you booked by phone, or send us a messag
             `<b>Reschedule \xB7 ${escapeTelegramHtml(target.treatmentName)}</b>`,
             `Current Time: <b>${escapeTelegramHtml(formatBotDateTime(target.preferredDateTime))}</b>`,
             ``,
-            `Choose a new clinic day (Mon\u2013Sat):`
+            `Choose a new clinic day (Mon\u2013Fri):`
           ].join("\n"),
           parse_mode: "HTML",
           reply_markup: { inline_keyboard: rows }
@@ -24408,6 +24830,435 @@ async function dispatchTelegramActions(botToken, actions) {
   }
 }
 
+// src/server/teamTelegramBot.ts
+var TEAM_MENU_LABELS = {
+  pending: "\u23F3 Pending Confirmations",
+  today: "\u{1F4CB} Today Patients",
+  tomorrow: "\u{1F4C6} Tomorrow Patients",
+  tomorrowPdf: "\u{1F4C4} Tomorrow PDF"
+};
+function buildTeamMainMenuKeyboard() {
+  return {
+    keyboard: [
+      [{ text: TEAM_MENU_LABELS.pending }, { text: TEAM_MENU_LABELS.tomorrowPdf }],
+      [{ text: TEAM_MENU_LABELS.today }, { text: TEAM_MENU_LABELS.tomorrow }]
+    ],
+    resize_keyboard: true,
+    is_persistent: true,
+    input_field_placeholder: "Team command or /tomorrowpdf\u2026"
+  };
+}
+function resolveBookingWhatsAppDisplay(booking) {
+  const code = booking.whatsappCountryCode || booking.phoneCountryCode || "+1";
+  const num = booking.whatsappNumber || booking.phoneNumber || "";
+  const digits = `${code}${num}`.replace(/\D/g, "");
+  const display = num ? `${code} ${num}`.trim() : "Not provided";
+  return { digits, display };
+}
+function buildTeamPatientAlertCard(booking, heading = "ELARA ATELIER \xB7 PATIENT BOOKING") {
+  const wa = resolveBookingWhatsAppDisplay(booking);
+  const waUrl = wa.digits ? buildTeamWhatsAppConfirmationUrl({
+    patientName: booking.fullName,
+    whatsappDigits: wa.digits,
+    treatmentName: booking.treatmentName,
+    preferredDateTime: booking.preferredDateTime
+  }) : "";
+  const statusBadge = booking.status === "confirmed" ? "\u2705 CONFIRMED" : booking.status === "cancelled" ? "\u274C CANCELLED" : "\u23F3 AWAITING WHATSAPP CONFIRMATION";
+  const lines = [
+    `<b>${escapeTelegramHtml(heading)}</b>`,
+    ``,
+    `<b>Patient:</b> ${escapeTelegramHtml(booking.fullName)}`,
+    `<b>Treatment:</b> ${escapeTelegramHtml(booking.treatmentName)}`,
+    `<b>Date &amp; Time:</b> ${escapeTelegramHtml(formatBotDateTime(booking.preferredDateTime))}`,
+    `<b>WhatsApp:</b> <code>${escapeTelegramHtml(wa.display)}</code>`,
+    `<b>Phone:</b> <code>${escapeTelegramHtml(`${booking.phoneCountryCode} ${booking.phoneNumber}`)}</code>`,
+    `<b>Telegram:</b> ${escapeTelegramHtml(booking.telegramValue || "Same as phone")}`,
+    `<b>Status:</b> <b>${statusBadge}</b>`,
+    `<b>Ref:</b> <code>${escapeTelegramHtml(booking.id)}</code>`
+  ];
+  const handle = booking.telegramMethod === "username" ? normalizeTelegramHandle(booking.telegramValue) : "";
+  const inline_keyboard = [];
+  if (waUrl && booking.status !== "cancelled") {
+    inline_keyboard.push([
+      {
+        text: "\u{1F4AC} Confirm on WhatsApp (1-Click)",
+        url: waUrl
+      }
+    ]);
+  }
+  if (handle && booking.status !== "cancelled") {
+    inline_keyboard.push([
+      {
+        text: `\u2708\uFE0F Message @${handle} on Telegram`,
+        url: `https://t.me/${handle}`
+      }
+    ]);
+  }
+  if (booking.status === "requested") {
+    inline_keyboard.push([
+      { text: "\u2705 Mark Confirmed", callback_data: `team:confirm:${booking.id}` },
+      { text: "\u274C Cancel Visit", callback_data: `team:cancel:${booking.id}` }
+    ]);
+  } else if (booking.status === "confirmed") {
+    inline_keyboard.push([
+      { text: "\u274C Cancel Visit", callback_data: `team:cancel:${booking.id}` },
+      { text: "\u{1F4C4} Tomorrow PDF", callback_data: "team:pdf:tomorrow" }
+    ]);
+  }
+  if (booking.status !== "confirmed") {
+    inline_keyboard.push([{ text: "\u{1F4C4} Send Tomorrow PDF", callback_data: "team:pdf:tomorrow" }]);
+  }
+  return {
+    text: lines.join("\n"),
+    reply_markup: { inline_keyboard }
+  };
+}
+function buildPatientStatusUpdateMessage(booking) {
+  if (booking.status === "confirmed") {
+    return [
+      `<b>Appointment Confirmed \xB7 Elara Atelier</b>`,
+      ``,
+      `Dear <b>${escapeTelegramHtml(booking.fullName)}</b>, our clinical team has confirmed your consultation:`,
+      `\u2022 <b>Treatment:</b> ${escapeTelegramHtml(booking.treatmentName)}`,
+      `\u2022 <b>Date &amp; Time:</b> ${escapeTelegramHtml(formatBotDateTime(booking.preferredDateTime))}`,
+      `\u2022 <b>Location:</b> ${escapeTelegramHtml(CLINIC_CONFIG.addressLine1)}, ${escapeTelegramHtml(CLINIC_CONFIG.addressLine2)}`,
+      ``,
+      `We look forward to welcoming you. Reply anytime if you have questions before your visit.`
+    ].join("\n");
+  }
+  return [
+    `<b>Appointment Update \xB7 Elara Atelier</b>`,
+    ``,
+    `Your consultation request for <b>${escapeTelegramHtml(booking.treatmentName)}</b> (${escapeTelegramHtml(formatBotDateTime(booking.preferredDateTime))}) has been marked cancelled by our clinic team.`,
+    `Please call <b>${escapeTelegramHtml(CLINIC_CONFIG.phoneDisplay)}</b> or book a new slot on our studio site anytime.`
+  ].join("\n");
+}
+function processTeamBotUpdate(store, update, options) {
+  const nowMs = options?.nowMs ?? Date.now();
+  const actions = [];
+  const syncEvents = [];
+  const sendPdfRequests = [];
+  const patientNotifyEvents = [];
+  if (update.callback_query) {
+    const cq = update.callback_query;
+    const chatId2 = cq.message?.chat?.id ? String(cq.message.chat.id) : "";
+    const messageId = cq.message?.message_id;
+    const data = cq.data || "";
+    actions.push({
+      method: "answerCallbackQuery",
+      payload: { callback_query_id: cq.id }
+    });
+    if (!chatId2) {
+      return { actions, syncEvents, sendPdfRequests, patientNotifyEvents };
+    }
+    if (data.startsWith("team:confirm:") || data.startsWith("team:cancel:")) {
+      const isConfirm = data.startsWith("team:confirm:");
+      const bookingId = data.slice(isConfirm ? "team:confirm:".length : "team:cancel:".length);
+      const result = store.updateBookingStatusFromTeam(
+        bookingId,
+        isConfirm ? "confirmed" : "cancelled",
+        nowMs
+      );
+      if (!result.ok) {
+        actions.push({
+          method: "sendMessage",
+          payload: {
+            chat_id: chatId2,
+            text: `<b>Update Failed:</b> ${escapeTelegramHtml(result.error)}`,
+            parse_mode: "HTML",
+            reply_markup: buildTeamMainMenuKeyboard()
+          }
+        });
+        return { actions, syncEvents, sendPdfRequests, patientNotifyEvents };
+      }
+      syncEvents.push({
+        type: "booking_updated",
+        booking: result.booking,
+        userId: result.booking.userId
+      });
+      const patientChatId = store.findChatIdForBooking(result.booking);
+      if (patientChatId) {
+        patientNotifyEvents.push({
+          chatId: patientChatId,
+          booking: result.booking
+        });
+      }
+      const updatedCard = buildTeamPatientAlertCard(
+        result.booking,
+        isConfirm ? "ELARA ATELIER \xB7 CONFIRMED BY TEAM" : "ELARA ATELIER \xB7 CANCELLED BY TEAM"
+      );
+      if (messageId) {
+        actions.push({
+          method: "editMessageText",
+          payload: {
+            chat_id: chatId2,
+            message_id: messageId,
+            text: updatedCard.text,
+            parse_mode: "HTML",
+            reply_markup: updatedCard.reply_markup
+          }
+        });
+      } else {
+        actions.push({
+          method: "sendMessage",
+          payload: {
+            chat_id: chatId2,
+            text: updatedCard.text,
+            parse_mode: "HTML",
+            reply_markup: updatedCard.reply_markup
+          }
+        });
+      }
+      return { actions, syncEvents, sendPdfRequests, patientNotifyEvents };
+    }
+    if (data === "team:pdf:tomorrow") {
+      const nextTarget = getNextClinicDateIso(new Date(nowMs), CLINIC_CONFIG.clinicTimeZone, true);
+      sendPdfRequests.push({
+        chatId: chatId2,
+        targetIsoDate: nextTarget.targetIsoDate,
+        displayDateLabel: nextTarget.displayDateLabel
+      });
+      return { actions, syncEvents, sendPdfRequests, patientNotifyEvents };
+    }
+    if (data === "team:pdf:today") {
+      const todayLocal = getClinicDateTimeParts(new Date(nowMs), CLINIC_CONFIG.clinicTimeZone);
+      sendPdfRequests.push({
+        chatId: chatId2,
+        targetIsoDate: todayLocal.isoDate,
+        displayDateLabel: `Today (${todayLocal.isoDate})`
+      });
+      return { actions, syncEvents, sendPdfRequests, patientNotifyEvents };
+    }
+    return { actions, syncEvents, sendPdfRequests, patientNotifyEvents };
+  }
+  const msg = update.message;
+  if (!msg?.chat?.id) {
+    return { actions, syncEvents, sendPdfRequests, patientNotifyEvents };
+  }
+  const chatId = String(msg.chat.id);
+  const rawText = (msg.text || "").trim();
+  const lower = rawText.toLowerCase();
+  const teamMenu = buildTeamMainMenuKeyboard();
+  const requiredPasscode = options?.teamPasscode?.trim() || "";
+  if (lower.startsWith("/chatid") || lower.startsWith("/whoami")) {
+    actions.push({
+      method: "sendMessage",
+      payload: {
+        chat_id: chatId,
+        text: [
+          `<b>Team Chat Identifier</b>`,
+          `Chat ID: <code>${escapeTelegramHtml(chatId)}</code>`,
+          ``,
+          `Set <code>TELEGRAM_TEAM_CHAT_ID="${escapeTelegramHtml(chatId)}"</code> in your environment secrets to pin this chat across serverless restarts.`
+        ].join("\n"),
+        parse_mode: "HTML",
+        reply_markup: teamMenu
+      }
+    });
+    return { actions, syncEvents, sendPdfRequests, patientNotifyEvents };
+  }
+  if (lower.startsWith("/start")) {
+    const providedCode = rawText.replace(/^\/start\s*/i, "").trim();
+    if (requiredPasscode && providedCode !== requiredPasscode) {
+      actions.push({
+        method: "sendMessage",
+        payload: {
+          chat_id: chatId,
+          text: [
+            `<b>Elara Atelier \xB7 Doctors &amp; Clinical Team Bot</b>`,
+            `Please enter <code>/start YOUR_TEAM_PASSCODE</code> to activate team patient alerts.`
+          ].join("\n"),
+          parse_mode: "HTML"
+        }
+      });
+      return { actions, syncEvents, sendPdfRequests, patientNotifyEvents };
+    }
+    store.registerTeamChat(chatId);
+    const pendingCount = store.getPendingBookings().length;
+    const nextDay = getNextClinicDateIso(new Date(nowMs), CLINIC_CONFIG.clinicTimeZone, true);
+    const tomorrowCount = store.getBookingsForDate(nextDay.targetIsoDate).length;
+    actions.push({
+      method: "sendMessage",
+      payload: {
+        chat_id: chatId,
+        text: [
+          `<b>ELARA ATELIER \xB7 DOCTORS &amp; TEAM CONSOLE</b>`,
+          ``,
+          `This chat is now subscribed to receive:`,
+          `\u2022 <b>Individual patient alerts</b> with a <b>1-click WhatsApp confirmation link</b> pre-filled with treatment, date &amp; time`,
+          `\u2022 <b>End-of-day Next-Day Patient Roster PDF</b> sent daily at 7:15 PM PT`,
+          ``,
+          `<b>Pending Confirmations:</b> ${pendingCount}`,
+          `<b>Next Open Day (${escapeTelegramHtml(nextDay.targetIsoDate)}):</b> ${tomorrowCount} patient${tomorrowCount === 1 ? "" : "s"}`,
+          `<b>Chat ID:</b> <code>${escapeTelegramHtml(chatId)}</code>`
+        ].join("\n"),
+        parse_mode: "HTML",
+        reply_markup: teamMenu
+      }
+    });
+    return { actions, syncEvents, sendPdfRequests, patientNotifyEvents };
+  }
+  if (!requiredPasscode) {
+    store.registerTeamChat(chatId);
+  }
+  const pushPatientRosterCards = (title, list, emptyNote) => {
+    if (list.length === 0) {
+      actions.push({
+        method: "sendMessage",
+        payload: {
+          chat_id: chatId,
+          text: `<b>${escapeTelegramHtml(title)}</b>
+
+${escapeTelegramHtml(emptyNote)}`,
+          parse_mode: "HTML",
+          reply_markup: teamMenu
+        }
+      });
+      return;
+    }
+    actions.push({
+      method: "sendMessage",
+      payload: {
+        chat_id: chatId,
+        text: `<b>${escapeTelegramHtml(title)}</b> (${list.length} patient${list.length === 1 ? "" : "s"})`,
+        parse_mode: "HTML",
+        reply_markup: teamMenu
+      }
+    });
+    for (const item of list.slice(0, 12)) {
+      const card = buildTeamPatientAlertCard(item, title);
+      actions.push({
+        method: "sendMessage",
+        payload: {
+          chat_id: chatId,
+          text: card.text,
+          parse_mode: "HTML",
+          reply_markup: card.reply_markup
+        }
+      });
+    }
+  };
+  if (lower.startsWith("/pending") || rawText === TEAM_MENU_LABELS.pending) {
+    const pending = store.getPendingBookings();
+    pushPatientRosterCards(
+      "PENDING WHATSAPP CONFIRMATIONS",
+      pending,
+      "All active consultations have been confirmed."
+    );
+    return { actions, syncEvents, sendPdfRequests, patientNotifyEvents };
+  }
+  if (lower.startsWith("/today") || rawText === TEAM_MENU_LABELS.today) {
+    const todayLocal = getClinicDateTimeParts(new Date(nowMs), CLINIC_CONFIG.clinicTimeZone);
+    const todayList = store.getBookingsForDate(todayLocal.isoDate);
+    pushPatientRosterCards(
+      `TODAY'S PATIENTS (${todayLocal.isoDate})`,
+      todayList,
+      `No active patient bookings scheduled for today (${todayLocal.isoDate}).`
+    );
+    return { actions, syncEvents, sendPdfRequests, patientNotifyEvents };
+  }
+  if (lower.startsWith("/tomorrow") && !lower.startsWith("/tomorrowpdf") || lower.startsWith("/patients") || rawText === TEAM_MENU_LABELS.tomorrow) {
+    const nextDay = getNextClinicDateIso(new Date(nowMs), CLINIC_CONFIG.clinicTimeZone, true);
+    const tomorrowList = store.getBookingsForDate(nextDay.targetIsoDate);
+    pushPatientRosterCards(
+      `NEXT CLINIC DAY (${nextDay.targetIsoDate})`,
+      tomorrowList,
+      `No active patient bookings scheduled for ${nextDay.displayDateLabel}.`
+    );
+    return { actions, syncEvents, sendPdfRequests, patientNotifyEvents };
+  }
+  if (lower.startsWith("/tomorrowpdf") || lower.startsWith("/pdf") || rawText === TEAM_MENU_LABELS.tomorrowPdf) {
+    const explicitDateMatch = /(\d{4}-\d{2}-\d{2})/.exec(rawText);
+    if (explicitDateMatch) {
+      const iso = explicitDateMatch[1];
+      sendPdfRequests.push({
+        chatId,
+        targetIsoDate: iso,
+        displayDateLabel: iso
+      });
+    } else {
+      const nextDay = getNextClinicDateIso(new Date(nowMs), CLINIC_CONFIG.clinicTimeZone, true);
+      sendPdfRequests.push({
+        chatId,
+        targetIsoDate: nextDay.targetIsoDate,
+        displayDateLabel: nextDay.displayDateLabel
+      });
+    }
+    return { actions, syncEvents, sendPdfRequests, patientNotifyEvents };
+  }
+  actions.push({
+    method: "sendMessage",
+    payload: {
+      chat_id: chatId,
+      text: [
+        `<b>Elara Atelier \xB7 Team Commands</b>`,
+        `\u2022 /pending \u2014 Patients waiting for WhatsApp confirmation`,
+        `\u2022 /today \u2014 Today's consultation list`,
+        `\u2022 /tomorrow \u2014 Next clinic day's patient list`,
+        `\u2022 /tomorrowpdf \u2014 Download tomorrow's patient roster PDF`,
+        `\u2022 /chatid \u2014 Show this chat's ID`
+      ].join("\n"),
+      parse_mode: "HTML",
+      reply_markup: teamMenu
+    }
+  });
+  return { actions, syncEvents, sendPdfRequests, patientNotifyEvents };
+}
+async function sendTelegramPdfDocument(botToken, chatId, pdfBuffer, filename, caption) {
+  if (!botToken || !chatId) return false;
+  try {
+    const form = new FormData();
+    form.append("chat_id", chatId);
+    form.append("caption", caption);
+    form.append("parse_mode", "HTML");
+    const blob = new Blob([new Uint8Array(pdfBuffer)], { type: "application/pdf" });
+    form.append("document", blob, filename);
+    const resp = await fetch(`https://api.telegram.org/bot${botToken}/sendDocument`, {
+      method: "POST",
+      body: form
+    });
+    return resp.ok;
+  } catch {
+    return false;
+  }
+}
+async function dispatchNextDaySchedulePdf(params) {
+  const now = new Date(params.nowMs ?? Date.now());
+  const nextDay = getNextClinicDateIso(now, CLINIC_CONFIG.clinicTimeZone, true);
+  const targetIsoDate = params.targetIsoDate || nextDay.targetIsoDate;
+  const displayDateLabel = params.displayDateLabel || nextDay.displayDateLabel;
+  const dayBookings = params.store.getBookingsForDate(targetIsoDate);
+  const pdfBuffer = generatePatientSchedulePdf({
+    targetDateIso: targetIsoDate,
+    displayDateLabel,
+    bookings: dayBookings
+  });
+  const filename = `Elara-Atelier-Patients-${targetIsoDate}.pdf`;
+  const caption = [
+    `<b>Elara Atelier \xB7 Patient Schedule PDF</b>`,
+    `<b>Date:</b> ${escapeTelegramHtml(displayDateLabel)}`,
+    `<b>Scheduled Patients:</b> ${dayBookings.length}`
+  ].join("\n");
+  let sentCount = 0;
+  for (const chatId of params.targetChatIds) {
+    const sent = await sendTelegramPdfDocument(
+      params.teamBotToken,
+      chatId,
+      pdfBuffer,
+      filename,
+      caption
+    );
+    if (sent) sentCount += 1;
+  }
+  return {
+    ok: sentCount > 0,
+    sentCount,
+    patientCount: dayBookings.length,
+    targetIsoDate,
+    filename
+  };
+}
+
 // src/server/createApp.ts
 var import_meta = {};
 function loadFirebaseApiKey() {
@@ -24471,6 +25322,83 @@ function resolveStoreFilePath() {
   }
   return import_node_path2.default.resolve(process.cwd(), ".elara-concierge-store.json");
 }
+function resolveTeamBotToken() {
+  return process.env.TELEGRAM_TEAM_BOT_TOKEN?.trim() || process.env.TELEGRAM_BOT_TOKEN?.trim() || "";
+}
+function extractUpdateChatId(update) {
+  if (update.callback_query?.message?.chat?.id !== void 0) {
+    return String(update.callback_query.message.chat.id);
+  }
+  if (update.message?.chat?.id !== void 0) {
+    return String(update.message.chat.id);
+  }
+  return "";
+}
+async function pushIndividualTeamBookingAlert(store, booking, heading) {
+  const teamBotToken = resolveTeamBotToken();
+  const teamChatIds = store.getTeamChatIds(
+    process.env.TELEGRAM_TEAM_CHAT_ID || process.env.TELEGRAM_CONCIERGE_CHAT_ID
+  );
+  if (!teamBotToken || teamChatIds.length === 0) {
+    return 0;
+  }
+  const card = buildTeamPatientAlertCard(booking, heading);
+  let delivered = 0;
+  for (const teamChatId of teamChatIds) {
+    try {
+      const ok = await sendTelegramCard(teamBotToken, teamChatId, card.text, card.reply_markup);
+      if (ok) delivered += 1;
+    } catch {
+    }
+  }
+  return delivered;
+}
+async function executeTeamBotUpdate(store, teamBotToken, patientBotToken, update, broadcastSyncEvents) {
+  const result = processTeamBotUpdate(store, update, {
+    teamPasscode: process.env.TELEGRAM_TEAM_PASSCODE
+  });
+  broadcastSyncEvents(result.syncEvents);
+  if (teamBotToken && result.actions.length > 0) {
+    await dispatchTelegramActions(teamBotToken, result.actions);
+  }
+  if (patientBotToken) {
+    for (const notify of result.patientNotifyEvents) {
+      try {
+        await sendTelegramCard(
+          patientBotToken,
+          notify.chatId,
+          buildPatientStatusUpdateMessage(notify.booking),
+          buildMainMenuReplyKeyboard(true)
+        );
+      } catch {
+      }
+    }
+  }
+  if (teamBotToken) {
+    for (const pdfReq of result.sendPdfRequests) {
+      await dispatchNextDaySchedulePdf({
+        store,
+        teamBotToken,
+        targetChatIds: [pdfReq.chatId],
+        targetIsoDate: pdfReq.targetIsoDate,
+        displayDateLabel: pdfReq.displayDateLabel
+      });
+    }
+  }
+}
+async function executePatientBotUpdate(store, patientBotToken, update, broadcastSyncEvents) {
+  const { actions, syncEvents } = processTelegramUpdate(store, update);
+  broadcastSyncEvents(syncEvents);
+  if (patientBotToken && actions.length > 0) {
+    await dispatchTelegramActions(patientBotToken, actions);
+  }
+  for (const ev of syncEvents) {
+    if (ev.type === "booking_updated") {
+      const heading = ev.booking.status === "cancelled" ? "ELARA ATELIER \xB7 PATIENT CANCELLED VISIT" : "ELARA ATELIER \xB7 PATIENT RESCHEDULED VISIT";
+      await pushIndividualTeamBookingAlert(store, ev.booking, heading);
+    }
+  }
+}
 function createExpressApp() {
   const app2 = (0, import_express.default)();
   app2.use(import_express.default.json());
@@ -24493,13 +25421,20 @@ function createExpressApp() {
   });
   app2.get("/api/telegram/status", (_req, res) => {
     const botToken = process.env.TELEGRAM_BOT_TOKEN?.trim() || "";
+    const teamBotToken = process.env.TELEGRAM_TEAM_BOT_TOKEN?.trim() || "";
     const botUsername = (process.env.TELEGRAM_BOT_USERNAME?.trim() || "ElaraAtelierBot").replace(
       /^@/,
       ""
     );
+    const teamBotUsername = (process.env.TELEGRAM_TEAM_BOT_USERNAME?.trim() || CLINIC_CONFIG.defaultTeamBotUsername).replace(/^@/, "");
+    const teamChats = store.getTeamChatIds(
+      process.env.TELEGRAM_TEAM_CHAT_ID || process.env.TELEGRAM_CONCIERGE_CHAT_ID
+    );
     res.json({
       botConfigured: Boolean(botToken),
-      botUsername
+      botUsername,
+      teamBotConfigured: Boolean(teamBotToken || teamChats.length > 0),
+      teamBotUsername
     });
   });
   app2.get("/api/telegram/events", (req, res) => {
@@ -24639,12 +25574,21 @@ function createExpressApp() {
     const deepLink = `https://t.me/${botUsername}?start=${bookingId}`;
     const phoneFallback = String(body.phone || "").trim();
     const fallbackCodeMatch = /^(\+\d{1,4})\s*(\d+)$/.exec(phoneFallback);
+    const primaryCode = String(body.phoneCountryCode || fallbackCodeMatch?.[1] || "+1");
+    const primaryDigits = String(body.phoneNumber || fallbackCodeMatch?.[2] || "").replace(
+      /\D/g,
+      ""
+    );
+    const whatsappCode = String(body.whatsappCountryCode || primaryCode).trim() || "+1";
+    const whatsappDigits = String(body.whatsappNumber || primaryDigits).replace(/\D/g, "") || primaryDigits;
     const record = store.upsertBooking({
       id: bookingId,
       userId: body.userId ? String(body.userId) : null,
       fullName: String(body.fullName || "Guest"),
-      phoneCountryCode: String(body.phoneCountryCode || fallbackCodeMatch?.[1] || "+1"),
-      phoneNumber: String(body.phoneNumber || fallbackCodeMatch?.[2] || "").replace(/\D/g, ""),
+      phoneCountryCode: primaryCode,
+      phoneNumber: primaryDigits,
+      whatsappCountryCode: whatsappCode,
+      whatsappNumber: whatsappDigits,
       treatmentId: String(body.treatmentId || "consultation"),
       treatmentName: String(body.treatmentName || "Consultation"),
       preferredDateTime: String(body.preferredDateTime || ""),
@@ -24655,10 +25599,12 @@ function createExpressApp() {
       updatedAtMs: Date.now(),
       chatId: body.chatId?.trim() || void 0
     });
+    const teamDeliveredCount = await pushIndividualTeamBookingAlert(store, record);
     if (!botToken) {
       res.json({
         ok: true,
         sent: false,
+        teamNotified: teamDeliveredCount > 0,
         mode: "deep_link",
         deepLink,
         message: "TELEGRAM_BOT_TOKEN not configured; deep link returned."
@@ -24670,6 +25616,7 @@ function createExpressApp() {
       res.json({
         ok: true,
         sent: false,
+        teamNotified: teamDeliveredCount > 0,
         mode: "pending_bot_start",
         deepLink,
         message: "Tap the Telegram bot link to open your private concierge menu."
@@ -24682,6 +25629,7 @@ function createExpressApp() {
       res.json({
         ok: true,
         sent,
+        teamNotified: teamDeliveredCount > 0,
         mode: sent ? "bot_api" : "deep_link",
         deepLink
       });
@@ -24689,19 +25637,89 @@ function createExpressApp() {
       res.json({
         ok: true,
         sent: false,
+        teamNotified: teamDeliveredCount > 0,
         mode: "deep_link",
         deepLink
       });
     }
   });
+  const handleDailyReportRequest = async (req, res) => {
+    const expectedSecret = process.env.CRON_SECRET?.trim();
+    if (expectedSecret) {
+      const authHeader = req.headers.authorization || "";
+      if (authHeader !== `Bearer ${expectedSecret}`) {
+        res.status(401).json({ ok: false, error: "Unauthorized cron request." });
+        return;
+      }
+    }
+    const requestedDate = typeof req.query.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(req.query.date) ? req.query.date : void 0;
+    if (req.query.download === "1" || req.query.format === "pdf") {
+      const nextDay = getNextClinicDateIso(/* @__PURE__ */ new Date(), CLINIC_CONFIG.clinicTimeZone, true);
+      const targetIso = requestedDate || nextDay.targetIsoDate;
+      const displayLabel = requestedDate || nextDay.displayDateLabel;
+      const pdfBuffer = generatePatientSchedulePdf({
+        targetDateIso: targetIso,
+        displayDateLabel: displayLabel,
+        bookings: store.getBookingsForDate(targetIso)
+      });
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader(
+        "Content-Disposition",
+        `inline; filename="Elara-Atelier-Patients-${targetIso}.pdf"`
+      );
+      res.send(pdfBuffer);
+      return;
+    }
+    const teamBotToken = resolveTeamBotToken();
+    const teamChatIds = store.getTeamChatIds(
+      process.env.TELEGRAM_TEAM_CHAT_ID || process.env.TELEGRAM_CONCIERGE_CHAT_ID
+    );
+    if (!teamBotToken || teamChatIds.length === 0) {
+      res.json({
+        ok: false,
+        sentCount: 0,
+        message: "Team Bot token or team chat ID is not configured yet."
+      });
+      return;
+    }
+    const result = await dispatchNextDaySchedulePdf({
+      store,
+      teamBotToken,
+      targetChatIds: teamChatIds,
+      targetIsoDate: requestedDate,
+      displayDateLabel: requestedDate
+    });
+    if (result.ok) {
+      store.markDailyPdfSent(result.targetIsoDate);
+    }
+    res.json(result);
+  };
+  app2.get("/api/telegram/daily-report", (req, res) => {
+    void handleDailyReportRequest(req, res);
+  });
+  app2.post("/api/telegram/daily-report", (req, res) => {
+    void handleDailyReportRequest(req, res);
+  });
   app2.post("/api/telegram/webhook", async (req, res) => {
     const botToken = process.env.TELEGRAM_BOT_TOKEN?.trim() || "";
+    const hasDedicatedTeamToken = Boolean(process.env.TELEGRAM_TEAM_BOT_TOKEN?.trim());
     const update = req.body || {};
-    const { actions, syncEvents } = processTelegramUpdate(store, update);
-    broadcastSyncEvents(syncEvents);
-    if (botToken && actions.length > 0) {
-      await dispatchTelegramActions(botToken, actions);
+    const incomingChatId = extractUpdateChatId(update);
+    const configuredTeamIds = store.getTeamChatIds(
+      process.env.TELEGRAM_TEAM_CHAT_ID || process.env.TELEGRAM_CONCIERGE_CHAT_ID
+    );
+    if (!hasDedicatedTeamToken && incomingChatId && configuredTeamIds.includes(incomingChatId)) {
+      await executeTeamBotUpdate(store, botToken, botToken, update, broadcastSyncEvents);
+    } else {
+      await executePatientBotUpdate(store, botToken, update, broadcastSyncEvents);
     }
+    res.json({ ok: true });
+  });
+  app2.post("/api/telegram/team-webhook", async (req, res) => {
+    const teamBotToken = resolveTeamBotToken();
+    const patientBotToken = process.env.TELEGRAM_BOT_TOKEN?.trim() || "";
+    const update = req.body || {};
+    await executeTeamBotUpdate(store, teamBotToken, patientBotToken, update, broadcastSyncEvents);
     res.json({ ok: true });
   });
   return {

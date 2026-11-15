@@ -178,7 +178,6 @@ export const HeroSection: React.FC<HeroSectionProps> = ({ onReserveClick }) => {
               doneLabel="Scrolling down..."
               icon={<ArrowDownRight className="h-4 w-4" />}
               onHold={onReserveClick}
-              onTap={onReserveClick}
               className="w-full text-xs font-medium tracking-[0.04em] sm:w-auto sm:text-sm"
             >
               Reserve Consultation

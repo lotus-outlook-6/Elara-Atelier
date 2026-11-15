@@ -52,12 +52,20 @@ function AtelierShell() {
     return !new URLSearchParams(window.location.search).has('autostart');
   });
   const [selectedTreatmentId, setSelectedTreatmentId] = useState<string>(TREATMENTS[0].id);
+  const [previewLoading, setPreviewLoading] = useState<boolean>(true);
   const [activeView, setActiveView] = useState<'studio' | 'auth' | 'profile'>('studio');
+  const [mapsQuotaExceeded, setMapsQuotaExceeded] = useState<boolean>(false);
   const [toast, setToast] = useState<ToastState>({
     open: false,
     title: 'Appointment Request Received',
     description: '',
   });
+
+  useEffect(() => {
+    const handleQuotaExceeded = () => setMapsQuotaExceeded(true);
+    window.addEventListener('gmp-quota-exceeded', handleQuotaExceeded);
+    return () => window.removeEventListener('gmp-quota-exceeded', handleQuotaExceeded);
+  }, []);
 
   useEffect(() => {
     if (!hydrating) return undefined;
@@ -150,6 +158,19 @@ function AtelierShell() {
   };
 
   /**
+   * Select a treatment from the Treatments catalog and smoothly scroll to the Before & After preview.
+   * Inputs: treatmentId string.
+   */
+  const handleCatalogTreatmentSelect = (treatmentId: string) => {
+    if (previewLoading) return;
+    setSelectedTreatmentId(treatmentId);
+    window.requestAnimationFrame(() => {
+      const resultsEl = document.getElementById('results');
+      resultsEl?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  };
+
+  /**
    * Trigger SwipeToast confirmation notification after a booking is submitted.
    */
   const handleBookingConfirmed = (summary: { patientName: string; treatmentName: string }) => {
@@ -182,6 +203,26 @@ function AtelierShell() {
       randomness={0.18}
     >
       <div className="min-h-screen bg-[#FAF7F2] text-[#1F1B18] antialiased">
+        {mapsQuotaExceeded ? (
+          <div
+            role="status"
+            className="bg-amber-50 border-b border-amber-200 text-amber-900 px-4 py-2.5 text-xs md:text-sm text-center sticky top-0 z-50"
+          >
+            <span>
+              Google Maps Platform quota reached. If you are the app owner, visit{' '}
+              <a
+                href="https://developers.google.com/maps/ai/ai-studio?utm_campaign=gmp_mcp_codeassist_v1_aistudio#quota_exceeded_errors"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline font-semibold text-amber-950 hover:text-amber-800"
+              >
+                maps developer site
+              </a>{' '}
+              for instructions to update your account.
+            </span>
+          </div>
+        ) : null}
+
         {/* Initial Hydration LatticeLoader Overlay */}
         {hydrating ? (
           <div
@@ -263,12 +304,14 @@ function AtelierShell() {
                 <TrustMetricsSection />
                 <TreatmentsSection
                   selectedTreatmentId={selectedTreatmentId}
-                  onSelectTreatment={setSelectedTreatmentId}
+                  onSelectTreatment={handleCatalogTreatmentSelect}
+                  isLocked={previewLoading}
                 />
                 <BeforeAfterSection
                   selectedTreatmentId={selectedTreatmentId}
                   onSelectTreatment={setSelectedTreatmentId}
                   onProceedToBook={scrollToBooking}
+                  onLoadingChange={setPreviewLoading}
                 />
                 <TestimonialsSection />
                 <BookingSection

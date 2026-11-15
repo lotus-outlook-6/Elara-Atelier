@@ -40,6 +40,8 @@ test('Dirty Dozen adversarial payloads fail schema and ownership invariants', ()
     'fullName',
     'phoneCountryCode',
     'phoneNumber',
+    'whatsappCountryCode',
+    'whatsappNumber',
     'dob',
     'treatmentId',
     'treatmentName',

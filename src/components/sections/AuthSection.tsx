@@ -23,6 +23,7 @@ import { CONCIERGE_SUITE_MEDIA } from '../../data/clinicMedia';
 import {
   calculateAge,
   resolveEffectiveTelegram,
+  resolveEffectiveWhatsApp,
   sanitizeNameInput,
   sanitizePhoneDigits,
   validateAccountForm,
@@ -101,8 +102,11 @@ export const AuthSection: React.FC<AuthSectionProps> = ({
     password: '',
     phoneCountryCode: '+1',
     phoneNumber: '',
+    whatsappSameAsPhone: true,
+    whatsappCountryCode: '+1',
+    whatsappNumber: '',
     dob: '',
-    telegramSameAsPhone: false,
+    telegramSameAsPhone: true,
     telegramMethod: 'username',
     telegramValue: '',
   });
@@ -223,11 +227,15 @@ export const AuthSection: React.FC<AuthSectionProps> = ({
     setSubmitting(true);
     try {
       const effectiveTelegram = resolveEffectiveTelegram(registerValues);
+      const effectiveWhatsApp = resolveEffectiveWhatsApp(registerValues);
       if (needsGoogleProfile && user) {
         await saveUserProfile({
           fullName: registerValues.fullName,
           phoneCountryCode: registerValues.phoneCountryCode,
           phoneNumber: registerValues.phoneNumber,
+          whatsappSameAsPhone: registerValues.whatsappSameAsPhone !== false,
+          whatsappCountryCode: effectiveWhatsApp.countryCode,
+          whatsappNumber: effectiveWhatsApp.number,
           dob: registerValues.dob,
           telegramSameAsPhone: registerValues.telegramSameAsPhone,
           telegramMethod: effectiveTelegram.method,
@@ -651,15 +659,40 @@ export const AuthSection: React.FC<AuthSectionProps> = ({
                               </div>
                             </div>
 
-                            <label className="mt-2.5 inline-flex cursor-pointer items-center gap-2 text-xs text-[#6E655F] select-none hover:text-[#1F1B18]">
-                              <input
-                                type="checkbox"
-                                checked={Boolean(registerValues.telegramSameAsPhone)}
-                                onChange={e => toggleTelegramSameAsPhone(e.target.checked)}
-                                className="h-4 w-4 cursor-pointer rounded border-[#E2D9CE] accent-[#1F1B18]"
-                              />
-                              <span>This phone number is the same as my Telegram number</span>
-                            </label>
+                            <div className="mt-2.5 flex flex-col gap-2">
+                              <label className="inline-flex cursor-pointer items-center gap-2 text-xs text-[#6E655F] select-none hover:text-[#1F1B18]">
+                                <input
+                                  type="checkbox"
+                                  checked={registerValues.whatsappSameAsPhone !== false}
+                                  onChange={e => {
+                                    const checked = e.target.checked;
+                                    setRegisterValues(prev => ({
+                                      ...prev,
+                                      whatsappSameAsPhone: checked,
+                                      whatsappCountryCode: checked
+                                        ? prev.phoneCountryCode
+                                        : prev.whatsappCountryCode || prev.phoneCountryCode,
+                                      whatsappNumber: checked ? '' : prev.whatsappNumber || '',
+                                    }));
+                                    setErrors(prev => ({ ...prev, whatsappNumber: undefined }));
+                                  }}
+                                  className="h-4 w-4 cursor-pointer rounded border-[#E2D9CE] accent-[#1F1B18]"
+                                />
+                                <span>
+                                  This phone number is also my WhatsApp number (for confirmation)
+                                </span>
+                              </label>
+
+                              <label className="inline-flex cursor-pointer items-center gap-2 text-xs text-[#6E655F] select-none hover:text-[#1F1B18]">
+                                <input
+                                  type="checkbox"
+                                  checked={Boolean(registerValues.telegramSameAsPhone)}
+                                  onChange={e => toggleTelegramSameAsPhone(e.target.checked)}
+                                  className="h-4 w-4 cursor-pointer rounded border-[#E2D9CE] accent-[#1F1B18]"
+                                />
+                                <span>Also receive live Telegram updates on this phone number</span>
+                              </label>
+                            </div>
 
                             {errors.phoneNumber ? (
                               <p className="mt-1.5 text-xs text-[#9E3B33]" role="alert">
@@ -667,6 +700,56 @@ export const AuthSection: React.FC<AuthSectionProps> = ({
                               </p>
                             ) : null}
                           </div>
+
+                          {registerValues.whatsappSameAsPhone === false ? (
+                            <div>
+                              <label
+                                htmlFor="reg-whatsapp"
+                                className="mb-1.5 block text-xs font-semibold tracking-[0.12em] text-[#1F1B18] uppercase"
+                              >
+                                WhatsApp Number (for Team Confirmation)
+                              </label>
+                              <div className="flex gap-2 sm:gap-2.5">
+                                <GlideSelect
+                                  options={countryCodeOptions}
+                                  value={registerValues.whatsappCountryCode || '+1'}
+                                  onChange={code => updateRegField('whatsappCountryCode', code)}
+                                  showTags={false}
+                                  size="lg"
+                                  radius={10}
+                                  menuWidth={170}
+                                  surfaceColor="#FAF7F2"
+                                  highlightColor="#EFE9E0"
+                                  accentColor="#B68D5E"
+                                  textColor="#1F1B18"
+                                  ariaLabel="WhatsApp country code"
+                                  className="w-28 shrink-0 sm:w-36"
+                                />
+                                <div className="relative flex-1">
+                                  <Phone className="pointer-events-none absolute top-3.5 left-3.5 h-4 w-4 text-[#6E655F]" />
+                                  <input
+                                    id="reg-whatsapp"
+                                    type="tel"
+                                    inputMode="numeric"
+                                    value={registerValues.whatsappNumber || ''}
+                                    onChange={e =>
+                                      updateRegField(
+                                        'whatsappNumber',
+                                        sanitizePhoneDigits(e.target.value)
+                                      )
+                                    }
+                                    placeholder="3105550199"
+                                    className="h-11 w-full rounded-[10px] border border-[#E2D9CE] bg-[#FAF7F2] pr-3.5 pl-10 text-sm text-[#1F1B18] tabular-nums outline-none transition-colors focus:border-[#B68D5E]"
+                                  />
+                                </div>
+                              </div>
+                              {errors.whatsappNumber ? (
+                                <p className="mt-1.5 text-xs text-[#9E3B33]" role="alert">
+                                  {errors.whatsappNumber}
+                                </p>
+                              ) : null}
+                            </div>
+                          ) : null}
 
                           {/* Date of Birth (In-Website AtelierDatePicker) */}
                           <div>

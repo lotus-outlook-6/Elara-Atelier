@@ -19,6 +19,9 @@ export interface BookingFormValues {
   fullName: string;
   phoneCountryCode: string;
   phoneNumber: string;
+  whatsappSameAsPhone?: boolean;
+  whatsappCountryCode?: string;
+  whatsappNumber?: string;
   dob: string;
   treatmentId: string;
   preferredDateTime: string;
@@ -38,6 +41,9 @@ export interface AccountFormValues {
   password: string;
   phoneCountryCode: string;
   phoneNumber: string;
+  whatsappSameAsPhone?: boolean;
+  whatsappCountryCode?: string;
+  whatsappNumber?: string;
   dob: string;
   telegramSameAsPhone?: boolean;
   telegramMethod: TelegramContactMethod;
@@ -52,6 +58,7 @@ export interface AccountValidationResult {
 export interface CalendarCell {
   isoDate: string;
   dayNumber: number;
+  dayOfWeek: number;
   inCurrentMonth: boolean;
   isToday: boolean;
 }
@@ -263,6 +270,35 @@ export function resolveEffectiveTelegram(values: {
 }
 
 /**
+ * Resolve the effective WhatsApp country code, national digits, full digits, and display string.
+ * Inputs: contact fields containing phoneCountryCode, phoneNumber, and optional separate WhatsApp fields.
+ * Output: { countryCode, number, fullDigits, display }.
+ */
+export function resolveEffectiveWhatsApp(values: {
+  phoneCountryCode: string;
+  phoneNumber: string;
+  whatsappSameAsPhone?: boolean;
+  whatsappCountryCode?: string;
+  whatsappNumber?: string;
+}): { countryCode: string; number: string; fullDigits: string; display: string } {
+  const useSeparate = values.whatsappSameAsPhone === false;
+  const rawCode = useSeparate
+    ? values.whatsappCountryCode?.trim() || values.phoneCountryCode.trim() || '+1'
+    : values.phoneCountryCode.trim() || '+1';
+  const cleanCode = rawCode.startsWith('+') ? rawCode : `+${rawCode.replace(/\D/g, '') || '1'}`;
+  const rawDigits = useSeparate
+    ? (values.whatsappNumber || '').replace(/\D/g, '')
+    : values.phoneNumber.replace(/\D/g, '');
+  const fullDigits = `${cleanCode.replace(/\D/g, '')}${rawDigits}`;
+  return {
+    countryCode: cleanCode,
+    number: rawDigits,
+    fullDigits,
+    display: rawDigits ? `${cleanCode} ${rawDigits}` : cleanCode,
+  };
+}
+
+/**
  * Filter treatments by the selected clinical category.
  * Inputs: category name, optional list of treatments.
  * Output: matching TreatmentItem array.
@@ -303,6 +339,16 @@ export function validateBookingForm(
   const phoneError = validatePhoneWithCountryCode(values.phoneCountryCode, values.phoneNumber);
   if (phoneError) errors.phoneNumber = phoneError;
 
+  if (values.whatsappSameAsPhone === false) {
+    const waError = validatePhoneWithCountryCode(
+      values.whatsappCountryCode || '+1',
+      values.whatsappNumber || ''
+    );
+    if (waError) {
+      errors.whatsappNumber = waError.replace('phone digits', 'WhatsApp digits');
+    }
+  }
+
   const dobError = validateAdultDob(values.dob, referenceDate);
   if (dobError) errors.dob = dobError;
 
@@ -312,6 +358,9 @@ export function validateBookingForm(
 
   if (!values.preferredDateTime.trim()) {
     errors.preferredDateTime = 'Please choose a preferred date and time.';
+  } else if (!isStudioWeekday(values.preferredDateTime)) {
+    errors.preferredDateTime =
+      'Studio appointments are available Monday – Friday only (closed Sat & Sun).';
   }
 
   if (values.telegramSameAsPhone) {
@@ -337,7 +386,7 @@ export function validateBookingForm(
 }
 
 /**
- * Validate account registration fields (email, password, non-numeric name, phone+code, 18+ DOB, Telegram).
+ * Validate account registration fields (email, password, non-numeric name, phone+code, WhatsApp, 18+ DOB, Telegram).
  * Inputs: AccountFormValues, requirePassword boolean, optional reference Date.
  * Output: AccountValidationResult with field-level errors.
  */
@@ -362,6 +411,16 @@ export function validateAccountForm(
 
   const phoneError = validatePhoneWithCountryCode(values.phoneCountryCode, values.phoneNumber);
   if (phoneError) errors.phoneNumber = phoneError;
+
+  if (values.whatsappSameAsPhone === false) {
+    const waError = validatePhoneWithCountryCode(
+      values.whatsappCountryCode || '+1',
+      values.whatsappNumber || ''
+    );
+    if (waError) {
+      errors.whatsappNumber = waError.replace('phone digits', 'WhatsApp digits');
+    }
+  }
 
   const dobError = validateAdultDob(values.dob, referenceDate);
   if (dobError) errors.dob = dobError;
@@ -460,9 +519,63 @@ export function extractBookingIsoDate(preferredDateTime: string): string {
 }
 
 /**
+ * Determine whether an ISO date (YYYY-MM-DD) or YYYY-MM-DDTHH:MM falls on a studio open weekday (Mon–Fri).
+ * Inputs: isoDateOrDateTime string.
+ * Output: boolean (true for Mon–Fri, false for Sat/Sun or invalid).
+ */
+export function isStudioWeekday(isoDateOrDateTime: string): boolean {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(isoDateOrDateTime.trim());
+  if (!match) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const dt = new Date(year, month - 1, day);
+  if (
+    Number.isNaN(dt.getTime()) ||
+    dt.getFullYear() !== year ||
+    dt.getMonth() !== month - 1 ||
+    dt.getDate() !== day
+  ) {
+    return false;
+  }
+  const weekday = dt.getDay();
+  return weekday >= 1 && weekday <= 5;
+}
+
+/**
+ * Resolve a guaranteed Monday–Friday YYYY-MM-DD date from a candidate ISO date or visible calendar month.
+ * Inputs: candidateIsoDate string, fallbackYear number, fallbackMonthIndex number (0-11), optional referenceDate.
+ * Output: YYYY-MM-DD string landing on Monday–Friday.
+ */
+export function resolveNextOpenStudioIsoDate(
+  candidateIsoDate: string,
+  fallbackYear: number,
+  fallbackMonthIndex: number,
+  referenceDate: Date = new Date()
+): string {
+  if (candidateIsoDate && isStudioWeekday(candidateIsoDate)) {
+    return candidateIsoDate;
+  }
+  const isCurrentCursorMonth =
+    fallbackYear === referenceDate.getFullYear() && fallbackMonthIndex === referenceDate.getMonth();
+  let startDay = isCurrentCursorMonth ? referenceDate.getDate() : 1;
+  const maxDaysInMonth = new Date(fallbackYear, fallbackMonthIndex + 1, 0).getDate();
+  if (startDay > maxDaysInMonth) startDay = 1;
+
+  for (let offset = 0; offset < 14; offset += 1) {
+    const candidate = new Date(fallbackYear, fallbackMonthIndex, startDay + offset);
+    const weekday = candidate.getDay();
+    if (weekday >= 1 && weekday <= 5) {
+      return `${candidate.getFullYear()}-${String(candidate.getMonth() + 1).padStart(2, '0')}-${String(candidate.getDate()).padStart(2, '0')}`;
+    }
+  }
+  return `${fallbackYear}-${String(fallbackMonthIndex + 1).padStart(2, '0')}-02`;
+}
+
+/**
  * Build a 42-cell (6-week) calendar grid for a given year and 0-indexed month.
  * Inputs: year (e.g. 2026), monthIndex (0-11), optional todayDate.
- * Output: Array of 42 CalendarCell objects starting on Sunday.
+ * Output: Array of 42 CalendarCell objects starting on Sunday with 0-6 dayOfWeek.
  */
 export function buildCalendarMonthGrid(
   year: number,
@@ -486,6 +599,7 @@ export function buildCalendarMonthGrid(
     cells.push({
       isoDate,
       dayNumber: cellDate.getDate(),
+      dayOfWeek: cellDate.getDay(),
       inCurrentMonth: cellDate.getMonth() === monthIndex && cellDate.getFullYear() === year,
       isToday: isoDate === todayIso,
     });
@@ -508,6 +622,7 @@ export function buildWhatsAppBookingUrl(
     treatmentLabel || getTreatmentById(values.treatmentId)?.name || values.treatmentId;
   const formattedTime = formatPreferredDateTime(values.preferredDateTime);
   const fullPhone = `${values.phoneCountryCode} ${values.phoneNumber}`.trim();
+  const effectiveWhatsApp = resolveEffectiveWhatsApp(values);
   const effectiveTelegram = resolveEffectiveTelegram(values);
   const telegramDisplay = effectiveTelegram.value;
 
@@ -516,6 +631,7 @@ export function buildWhatsAppBookingUrl(
     'I would like to confirm my private consultation request:',
     `• Name: ${values.fullName.trim()}`,
     `• Phone: ${fullPhone}`,
+    `• WhatsApp: ${effectiveWhatsApp.display}`,
     `• Telegram: ${telegramDisplay}`,
     `• Treatment: ${treatmentName}`,
     `• Preferred Date & Time: ${formattedTime}`,
@@ -523,6 +639,42 @@ export function buildWhatsAppBookingUrl(
 
   const text = encodeURIComponent(lines.join('\n'));
   return `https://wa.me/${cleanNumber}?text=${text}`;
+}
+
+/**
+ * Build a one-click custom WhatsApp confirmation link for the doctor/clinical team
+ * pre-filled with the patient's full confirmation message (name, treatment, date, time, studio address).
+ * Inputs: patientName, whatsappDigits (with country code), treatmentName, preferredDateTime, optional clinic details.
+ * Output: https://wa.me/<digits>?text=<encoded confirmation text>.
+ */
+export function buildTeamWhatsAppConfirmationUrl(input: {
+  patientName: string;
+  whatsappDigits: string;
+  treatmentName: string;
+  preferredDateTime: string;
+  clinicName?: string;
+  clinicAddress?: string;
+}): string {
+  const cleanDigits = input.whatsappDigits.replace(/\D/g, '');
+  const formattedTime = formatPreferredDateTime(input.preferredDateTime) || input.preferredDateTime;
+  const clinicName = input.clinicName || CLINIC_CONFIG.brandName;
+  const clinicAddress =
+    input.clinicAddress || `${CLINIC_CONFIG.addressLine1}, ${CLINIC_CONFIG.addressLine2}`;
+  const patientFirstOrFull = input.patientName.trim() || 'Guest';
+
+  const message = [
+    `Hello ${patientFirstOrFull},`,
+    ``,
+    `Your consultation at *${clinicName}* has been *CONFIRMED*.`,
+    ``,
+    `• *Treatment:* ${input.treatmentName}`,
+    `• *Date & Time:* ${formattedTime}`,
+    `• *Studio Location:* ${clinicAddress}`,
+    ``,
+    `Please reply YES to confirm you received this message or let us know if you need any assistance before your visit.`,
+  ].join('\n');
+
+  return `https://wa.me/${cleanDigits}?text=${encodeURIComponent(message)}`;
 }
 
 /**
@@ -595,9 +747,9 @@ export function calculateSmileProgressByDays(days: number): SmileProgressStage {
 
   const rawCharge =
     clampedDays <= 5
-      ? 1200 + ((clampedDays - 1) / 4) * 3600
-      : 6400 + ((clampedDays - 6) / 8) * 9200;
-  const estimatedCharge = Math.round(rawCharge / 100) * 100;
+      ? 480 + ((clampedDays - 1) / 4) * 480
+      : 960 + ((clampedDays - 6) / 8) * 960;
+  const estimatedCharge = Math.round(rawCharge / 20) * 20;
 
   return {
     days: clampedDays,
@@ -611,6 +763,52 @@ export function calculateSmileProgressByDays(days: number): SmileProgressStage {
     afterSepia,
     estimatedCharge,
     formattedCharge: `$${estimatedCharge.toLocaleString('en-US')}`,
+  };
+}
+
+export interface LaserWhiteningPassInfo {
+  pass: number;
+  durationMinutes: number;
+  passLabel: string;
+  shadeGainLabel: string;
+  blendOpacity: number;
+}
+
+/**
+ * Compute session timing, shade gain description, and After-image blend opacity
+ * for the 3-pass In-Chair Laser Teeth Whitening slider.
+ * Inputs: pass number (clamped 1 to 3).
+ * Output: LaserWhiteningPassInfo object.
+ */
+export function calculateLaserWhiteningPass(pass: number): LaserWhiteningPassInfo {
+  const clampedPass = Number.isFinite(pass)
+    ? Math.min(3, Math.max(1, Math.round(pass)))
+    : 3;
+
+  if (clampedPass === 1) {
+    return {
+      pass: 1,
+      durationMinutes: 25,
+      passLabel: 'Pass 1 · 25 min',
+      shadeGainLabel: '+2 Shades Lift',
+      blendOpacity: 0.42,
+    };
+  }
+  if (clampedPass === 2) {
+    return {
+      pass: 2,
+      durationMinutes: 50,
+      passLabel: 'Pass 2 · 50 min',
+      shadeGainLabel: '+4 Shades Lift',
+      blendOpacity: 0.72,
+    };
+  }
+  return {
+    pass: 3,
+    durationMinutes: 75,
+    passLabel: 'Pass 3 · 75 min',
+    shadeGainLabel: '+6 Shades Lift',
+    blendOpacity: 1,
   };
 }
 

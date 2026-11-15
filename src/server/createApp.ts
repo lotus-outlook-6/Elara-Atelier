@@ -1,18 +1,31 @@
 /**
- * Express application factory and Telegram Bot polling helper for Elara Atelier.
- * Shared between local/Docker long-running Node server (server.ts) and Vercel
- * Serverless Functions (api/index.ts).
+ * Express application factory, dual-bot Telegram webhook/polling router,
+ * team WhatsApp notification dispatcher, and end-of-day Next-Day PDF scheduler
+ * for Elara Atelier — shared between Node (server.ts) and Vercel Serverless (api/index.js).
  */
 
 import express, { type Express, type Response } from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { CLINIC_CONFIG } from '../config/clinicConfig';
 import {
   ConciergeStore,
   type ConciergeBookingRecord,
   type ConciergeProfileRecord,
 } from './conciergeStore';
+import {
+  generatePatientSchedulePdf,
+  getClinicDateTimeParts,
+  getNextClinicDateIso,
+} from './pdfSchedule';
+import {
+  buildPatientStatusUpdateMessage,
+  buildTeamPatientAlertCard,
+  dispatchNextDaySchedulePdf,
+  processTeamBotUpdate,
+  registerTeamBotCommands,
+} from './teamTelegramBot';
 import {
   buildBookingPushCard,
   buildMainMenuReplyKeyboard,
@@ -36,6 +49,8 @@ interface TelegramNotifyBody {
   phoneCountryCode?: string;
   phoneNumber?: string;
   phone?: string;
+  whatsappCountryCode?: string;
+  whatsappNumber?: string;
   treatmentId?: string;
   treatmentName?: string;
   preferredDateTime?: string;
@@ -154,7 +169,146 @@ function resolveStoreFilePath(): string {
 }
 
 /**
- * Construct and configure the Express API router for Elara Atelier concierge & Telegram integration.
+ * Resolve the Telegram bot token used for Doctors / Team alerts (supports dedicated TELEGRAM_TEAM_BOT_TOKEN
+ * with clean fallback to TELEGRAM_BOT_TOKEN when sharing a single bot).
+ * Output: token string or empty string.
+ */
+function resolveTeamBotToken(): string {
+  return (
+    process.env.TELEGRAM_TEAM_BOT_TOKEN?.trim() ||
+    process.env.TELEGRAM_BOT_TOKEN?.trim() ||
+    ''
+  );
+}
+
+/**
+ * Extract the chat ID from a Telegram message or callback query payload.
+ * Inputs: TelegramUpdatePayload.
+ * Output: chatId string or empty string.
+ */
+function extractUpdateChatId(update: TelegramUpdatePayload): string {
+  if (update.callback_query?.message?.chat?.id !== undefined) {
+    return String(update.callback_query.message.chat.id);
+  }
+  if (update.message?.chat?.id !== undefined) {
+    return String(update.message.chat.id);
+  }
+  return '';
+}
+
+/**
+ * Dispatch an individual patient booking card (including the 1-click WhatsApp confirmation button)
+ * to every registered Doctors / Team Telegram chat.
+ * Inputs: store, booking record, optional heading string.
+ * Output: count of successfully delivered team alerts.
+ */
+async function pushIndividualTeamBookingAlert(
+  store: ConciergeStore,
+  booking: ConciergeBookingRecord,
+  heading?: string
+): Promise<number> {
+  const teamBotToken = resolveTeamBotToken();
+  const teamChatIds = store.getTeamChatIds(
+    process.env.TELEGRAM_TEAM_CHAT_ID || process.env.TELEGRAM_CONCIERGE_CHAT_ID
+  );
+  if (!teamBotToken || teamChatIds.length === 0) {
+    return 0;
+  }
+
+  const card = buildTeamPatientAlertCard(booking, heading);
+  let delivered = 0;
+  for (const teamChatId of teamChatIds) {
+    try {
+      const ok = await sendTelegramCard(teamBotToken, teamChatId, card.text, card.reply_markup);
+      if (ok) delivered += 1;
+    } catch {
+      // Continue notifying remaining team chats
+    }
+  }
+  return delivered;
+}
+
+/**
+ * Execute an incoming Doctors / Team Bot update end-to-end:
+ * state mutation, SSE website broadcast, team message actions, patient confirmation alerts, and PDF dispatches.
+ * Inputs: store, teamBotToken, patientBotToken, TelegramUpdatePayload, broadcastSyncEvents fn.
+ */
+async function executeTeamBotUpdate(
+  store: ConciergeStore,
+  teamBotToken: string,
+  patientBotToken: string,
+  update: TelegramUpdatePayload,
+  broadcastSyncEvents: (events: BotWebSyncEvent[]) => void
+): Promise<void> {
+  const result = processTeamBotUpdate(store, update, {
+    teamPasscode: process.env.TELEGRAM_TEAM_PASSCODE,
+  });
+
+  broadcastSyncEvents(result.syncEvents);
+
+  if (teamBotToken && result.actions.length > 0) {
+    await dispatchTelegramActions(teamBotToken, result.actions);
+  }
+
+  if (patientBotToken) {
+    for (const notify of result.patientNotifyEvents) {
+      try {
+        await sendTelegramCard(
+          patientBotToken,
+          notify.chatId,
+          buildPatientStatusUpdateMessage(notify.booking),
+          buildMainMenuReplyKeyboard(true)
+        );
+      } catch {
+        // Ignore transient patient notification errors
+      }
+    }
+  }
+
+  if (teamBotToken) {
+    for (const pdfReq of result.sendPdfRequests) {
+      await dispatchNextDaySchedulePdf({
+        store,
+        teamBotToken,
+        targetChatIds: [pdfReq.chatId],
+        targetIsoDate: pdfReq.targetIsoDate,
+        displayDateLabel: pdfReq.displayDateLabel,
+      });
+    }
+  }
+}
+
+/**
+ * Execute an incoming Patient Bot update end-to-end, forwarding patient reschedules/cancellations
+ * as individual update cards to the Team Bot as well.
+ * Inputs: store, patientBotToken, update, broadcastSyncEvents fn.
+ */
+async function executePatientBotUpdate(
+  store: ConciergeStore,
+  patientBotToken: string,
+  update: TelegramUpdatePayload,
+  broadcastSyncEvents: (events: BotWebSyncEvent[]) => void
+): Promise<void> {
+  const { actions, syncEvents } = processTelegramUpdate(store, update);
+  broadcastSyncEvents(syncEvents);
+
+  if (patientBotToken && actions.length > 0) {
+    await dispatchTelegramActions(patientBotToken, actions);
+  }
+
+  for (const ev of syncEvents) {
+    if (ev.type === 'booking_updated') {
+      const heading =
+        ev.booking.status === 'cancelled'
+          ? 'ELARA ATELIER · PATIENT CANCELLED VISIT'
+          : 'ELARA ATELIER · PATIENT RESCHEDULED VISIT';
+      await pushIndividualTeamBookingAlert(store, ev.booking, heading);
+    }
+  }
+}
+
+/**
+ * Construct and configure the Express API router for Elara Atelier concierge & dual-bot Telegram workflows.
  * Inputs: none.
  * Output: CreateAppResult holding configured Express instance, store, and SSE broadcaster.
  */
@@ -186,13 +340,22 @@ export function createExpressApp(): CreateAppResult {
 
   app.get('/api/telegram/status', (_req, res) => {
     const botToken = process.env.TELEGRAM_BOT_TOKEN?.trim() || '';
+    const teamBotToken = process.env.TELEGRAM_TEAM_BOT_TOKEN?.trim() || '';
     const botUsername = (process.env.TELEGRAM_BOT_USERNAME?.trim() || 'ElaraAtelierBot').replace(
       /^@/,
       ''
     );
+    const teamBotUsername = (
+      process.env.TELEGRAM_TEAM_BOT_USERNAME?.trim() || CLINIC_CONFIG.defaultTeamBotUsername
+    ).replace(/^@/, '');
+    const teamChats = store.getTeamChatIds(
+      process.env.TELEGRAM_TEAM_CHAT_ID || process.env.TELEGRAM_CONCIERGE_CHAT_ID
+    );
     res.json({
       botConfigured: Boolean(botToken),
       botUsername,
+      teamBotConfigured: Boolean(teamBotToken || teamChats.length > 0),
+      teamBotUsername,
     });
   });
 
@@ -346,7 +509,8 @@ export function createExpressApp(): CreateAppResult {
     });
   });
 
-  // Register a booking and push an interactive card strictly to that matched user's Telegram chat
+  // Register a booking, notify the clinical Team Bot with a 1-click WhatsApp confirmation link,
+  // and push an interactive card to the patient's matched Telegram chat when linked
   app.post('/api/telegram/notify', async (req, res) => {
     const body = (req.body || {}) as TelegramNotifyBody;
     const botToken = process.env.TELEGRAM_BOT_TOKEN?.trim() || '';
@@ -359,13 +523,24 @@ export function createExpressApp(): CreateAppResult {
 
     const phoneFallback = String(body.phone || '').trim();
     const fallbackCodeMatch = /^(\+\d{1,4})\s*(\d+)$/.exec(phoneFallback);
+    const primaryCode = String(body.phoneCountryCode || fallbackCodeMatch?.[1] || '+1');
+    const primaryDigits = String(body.phoneNumber || fallbackCodeMatch?.[2] || '').replace(
+      /\D/g,
+      ''
+    );
+
+    const whatsappCode = String(body.whatsappCountryCode || primaryCode).trim() || '+1';
+    const whatsappDigits =
+      String(body.whatsappNumber || primaryDigits).replace(/\D/g, '') || primaryDigits;
 
     const record = store.upsertBooking({
       id: bookingId,
       userId: body.userId ? String(body.userId) : null,
       fullName: String(body.fullName || 'Guest'),
-      phoneCountryCode: String(body.phoneCountryCode || fallbackCodeMatch?.[1] || '+1'),
-      phoneNumber: String(body.phoneNumber || fallbackCodeMatch?.[2] || '').replace(/\D/g, ''),
+      phoneCountryCode: primaryCode,
+      phoneNumber: primaryDigits,
+      whatsappCountryCode: whatsappCode,
+      whatsappNumber: whatsappDigits,
       treatmentId: String(body.treatmentId || 'consultation'),
       treatmentName: String(body.treatmentName || 'Consultation'),
       preferredDateTime: String(body.preferredDateTime || ''),
@@ -377,10 +552,14 @@ export function createExpressApp(): CreateAppResult {
       chatId: body.chatId?.trim() || undefined,
     });
 
+    // Always notify Doctors / Clinical Team Bot individually for every patient booking
+    const teamDeliveredCount = await pushIndividualTeamBookingAlert(store, record);
+
     if (!botToken) {
       res.json({
         ok: true,
         sent: false,
+        teamNotified: teamDeliveredCount > 0,
         mode: 'deep_link',
         deepLink,
         message: 'TELEGRAM_BOT_TOKEN not configured; deep link returned.',
@@ -394,6 +573,7 @@ export function createExpressApp(): CreateAppResult {
       res.json({
         ok: true,
         sent: false,
+        teamNotified: teamDeliveredCount > 0,
         mode: 'pending_bot_start',
         deepLink,
         message: 'Tap the Telegram bot link to open your private concierge menu.',
@@ -407,6 +587,7 @@ export function createExpressApp(): CreateAppResult {
       res.json({
         ok: true,
         sent,
+        teamNotified: teamDeliveredCount > 0,
         mode: sent ? 'bot_api' : 'deep_link',
         deepLink,
       });
@@ -414,23 +595,112 @@ export function createExpressApp(): CreateAppResult {
       res.json({
         ok: true,
         sent: false,
+        teamNotified: teamDeliveredCount > 0,
         mode: 'deep_link',
         deepLink,
       });
     }
   });
 
-  // Interactive Telegram Webhook endpoint for /start, contact verification, inline buttons & rescheduling
-  app.post('/api/telegram/webhook', async (req, res) => {
-    const botToken = process.env.TELEGRAM_BOT_TOKEN?.trim() || '';
-    const update = (req.body || {}) as TelegramUpdatePayload;
-    const { actions, syncEvents } = processTelegramUpdate(store, update);
-
-    broadcastSyncEvents(syncEvents);
-    if (botToken && actions.length > 0) {
-      await dispatchTelegramActions(botToken, actions);
+  // Trigger Next-Day Patient Schedule PDF report (used by Vercel Cron at EOD or manual clinic trigger)
+  const handleDailyReportRequest = async (
+    req: express.Request,
+    res: express.Response
+  ): Promise<void> => {
+    const expectedSecret = process.env.CRON_SECRET?.trim();
+    if (expectedSecret) {
+      const authHeader = req.headers.authorization || '';
+      if (authHeader !== `Bearer ${expectedSecret}`) {
+        res.status(401).json({ ok: false, error: 'Unauthorized cron request.' });
+        return;
+      }
     }
 
+    const requestedDate =
+      typeof req.query.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(req.query.date)
+        ? req.query.date
+        : undefined;
+
+    if (req.query.download === '1' || req.query.format === 'pdf') {
+      const nextDay = getNextClinicDateIso(new Date(), CLINIC_CONFIG.clinicTimeZone, true);
+      const targetIso = requestedDate || nextDay.targetIsoDate;
+      const displayLabel = requestedDate || nextDay.displayDateLabel;
+      const pdfBuffer = generatePatientSchedulePdf({
+        targetDateIso: targetIso,
+        displayDateLabel: displayLabel,
+        bookings: store.getBookingsForDate(targetIso),
+      });
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader(
+        'Content-Disposition',
+        `inline; filename="Elara-Atelier-Patients-${targetIso}.pdf"`
+      );
+      res.send(pdfBuffer);
+      return;
+    }
+
+    const teamBotToken = resolveTeamBotToken();
+    const teamChatIds = store.getTeamChatIds(
+      process.env.TELEGRAM_TEAM_CHAT_ID || process.env.TELEGRAM_CONCIERGE_CHAT_ID
+    );
+
+    if (!teamBotToken || teamChatIds.length === 0) {
+      res.json({
+        ok: false,
+        sentCount: 0,
+        message: 'Team Bot token or team chat ID is not configured yet.',
+      });
+      return;
+    }
+
+    const result = await dispatchNextDaySchedulePdf({
+      store,
+      teamBotToken,
+      targetChatIds: teamChatIds,
+      targetIsoDate: requestedDate,
+      displayDateLabel: requestedDate,
+    });
+
+    if (result.ok) {
+      store.markDailyPdfSent(result.targetIsoDate);
+    }
+
+    res.json(result);
+  };
+
+  app.get('/api/telegram/daily-report', (req, res) => {
+    void handleDailyReportRequest(req, res);
+  });
+  app.post('/api/telegram/daily-report', (req, res) => {
+    void handleDailyReportRequest(req, res);
+  });
+
+  // Patient Bot Webhook endpoint (also routes team-chat updates cleanly when sharing a single bot token)
+  app.post('/api/telegram/webhook', async (req, res) => {
+    const botToken = process.env.TELEGRAM_BOT_TOKEN?.trim() || '';
+    const hasDedicatedTeamToken = Boolean(process.env.TELEGRAM_TEAM_BOT_TOKEN?.trim());
+    const update = (req.body || {}) as TelegramUpdatePayload;
+    const incomingChatId = extractUpdateChatId(update);
+    const configuredTeamIds = store.getTeamChatIds(
+      process.env.TELEGRAM_TEAM_CHAT_ID || process.env.TELEGRAM_CONCIERGE_CHAT_ID
+    );
+
+    if (!hasDedicatedTeamToken && incomingChatId && configuredTeamIds.includes(incomingChatId)) {
+      await executeTeamBotUpdate(store, botToken, botToken, update, broadcastSyncEvents);
+    } else {
+      await executePatientBotUpdate(store, botToken, update, broadcastSyncEvents);
+    }
+
+    res.json({ ok: true });
+  });
+
+  // Dedicated Doctors / Clinical Team Bot Webhook endpoint
+  app.post('/api/telegram/team-webhook', async (req, res) => {
+    const teamBotToken = resolveTeamBotToken();
+    const patientBotToken = process.env.TELEGRAM_BOT_TOKEN?.trim() || '';
+    const update = (req.body || {}) as TelegramUpdatePayload;
+
+    await executeTeamBotUpdate(store, teamBotToken, patientBotToken, update, broadcastSyncEvents);
     res.json({ ok: true });
   });
 
@@ -442,58 +712,132 @@ export function createExpressApp(): CreateAppResult {
 }
 
 /**
- * Start background Telegram long-polling when running on a persistent Node server (disabled on Vercel).
+ * Start a long-polling loop for a single Telegram Bot token if webhook is not configured.
+ * Inputs: botToken, onUpdate async callback.
+ */
+async function startSingleBotPoller(
+  botToken: string,
+  onUpdate: (update: TelegramUpdatePayload) => Promise<void>
+): Promise<void> {
+  try {
+    const infoRes = await fetch(`https://api.telegram.org/bot${botToken}/getWebhookInfo`);
+    const infoJson = (await infoRes.json()) as { ok?: boolean; result?: { url?: string } };
+    if (infoJson?.result?.url) {
+      return;
+    }
+    let offset = 0;
+    const poll = async () => {
+      try {
+        const resp = await fetch(
+          `https://api.telegram.org/bot${botToken}/getUpdates?timeout=25&offset=${offset}`
+        );
+        if (resp.ok) {
+          const payload = (await resp.json()) as {
+            ok?: boolean;
+            result?: TelegramUpdatePayload[];
+          };
+          for (const upd of payload.result || []) {
+            if (typeof upd.update_id === 'number') {
+              offset = Math.max(offset, upd.update_id + 1);
+            }
+            await onUpdate(upd);
+          }
+        }
+      } catch {
+        // Back off gently on network glitches
+      }
+      setTimeout(() => {
+        void poll();
+      }, 1200);
+    };
+    void poll();
+  } catch {
+    // Ignore polling startup failure when offline
+  }
+}
+
+/**
+ * Start background Telegram long-polling (Patient Bot + Team Bot) and End-of-Day Next-Day PDF
+ * scheduler when running on a persistent Node server (disabled on Vercel serverless).
  * Inputs: ConciergeStore instance and SSE sync broadcaster.
  */
 export function startTelegramPollingIfEnabled(
   store: ConciergeStore,
   broadcastSyncEvents: (events: BotWebSyncEvent[]) => void
 ): void {
-  const botToken = process.env.TELEGRAM_BOT_TOKEN?.trim() || '';
-  if (!botToken || process.env.TELEGRAM_USE_POLLING === 'false' || process.env.VERCEL) {
+  if (process.env.TELEGRAM_USE_POLLING === 'false' || process.env.VERCEL) {
     return;
   }
 
-  void registerBotCommands(botToken);
-  void (async () => {
-    try {
-      const infoRes = await fetch(`https://api.telegram.org/bot${botToken}/getWebhookInfo`);
-      const infoJson = (await infoRes.json()) as { ok?: boolean; result?: { url?: string } };
-      if (infoJson?.result?.url) {
+  const patientBotToken = process.env.TELEGRAM_BOT_TOKEN?.trim() || '';
+  const dedicatedTeamToken = process.env.TELEGRAM_TEAM_BOT_TOKEN?.trim() || '';
+  const effectiveTeamToken = dedicatedTeamToken || patientBotToken;
+
+  if (patientBotToken) {
+    void registerBotCommands(patientBotToken);
+    const configuredTeamIds = store.getTeamChatIds(
+      process.env.TELEGRAM_TEAM_CHAT_ID || process.env.TELEGRAM_CONCIERGE_CHAT_ID
+    );
+    void startSingleBotPoller(patientBotToken, async upd => {
+      const chatId = extractUpdateChatId(upd);
+      if (!dedicatedTeamToken && chatId && configuredTeamIds.includes(chatId)) {
+        await executeTeamBotUpdate(store, patientBotToken, patientBotToken, upd, broadcastSyncEvents);
+      } else {
+        await executePatientBotUpdate(store, patientBotToken, upd, broadcastSyncEvents);
+      }
+    });
+  }
+
+  if (dedicatedTeamToken && dedicatedTeamToken !== patientBotToken) {
+    void registerTeamBotCommands(dedicatedTeamToken);
+    void startSingleBotPoller(dedicatedTeamToken, async upd => {
+      await executeTeamBotUpdate(
+        store,
+        dedicatedTeamToken,
+        patientBotToken,
+        upd,
+        broadcastSyncEvents
+      );
+    });
+  }
+
+  // Automatic End-of-Day Next-Day Patient Roster PDF scheduler (7:15 PM America/Los_Angeles)
+  if (effectiveTeamToken) {
+    const checkAndSendEodPdf = async () => {
+      const teamChatIds = store.getTeamChatIds(
+        process.env.TELEGRAM_TEAM_CHAT_ID || process.env.TELEGRAM_CONCIERGE_CHAT_ID
+      );
+      if (teamChatIds.length === 0) return;
+
+      const now = new Date();
+      const localNow = getClinicDateTimeParts(now, CLINIC_CONFIG.clinicTimeZone);
+      const pastTriggerTime =
+        localNow.hour > CLINIC_CONFIG.eodPdfHour ||
+        (localNow.hour === CLINIC_CONFIG.eodPdfHour && localNow.minute >= CLINIC_CONFIG.eodPdfMinute);
+
+      if (!pastTriggerTime) return;
+
+      const nextDay = getNextClinicDateIso(now, CLINIC_CONFIG.clinicTimeZone, true);
+      if (store.getLastDailyPdfSentForDate() === nextDay.targetIsoDate) {
         return;
       }
-      let offset = 0;
-      const poll = async () => {
-        try {
-          const resp = await fetch(
-            `https://api.telegram.org/bot${botToken}/getUpdates?timeout=25&offset=${offset}`
-          );
-          if (resp.ok) {
-            const payload = (await resp.json()) as {
-              ok?: boolean;
-              result?: TelegramUpdatePayload[];
-            };
-            for (const upd of payload.result || []) {
-              if (typeof upd.update_id === 'number') {
-                offset = Math.max(offset, upd.update_id + 1);
-              }
-              const { actions, syncEvents } = processTelegramUpdate(store, upd);
-              broadcastSyncEvents(syncEvents);
-              if (actions.length > 0) {
-                await dispatchTelegramActions(botToken, actions);
-              }
-            }
-          }
-        } catch {
-          // Back off gently on network glitches
-        }
-        setTimeout(() => {
-          void poll();
-        }, 1200);
-      };
-      void poll();
-    } catch {
-      // Ignore polling startup failure when offline
-    }
-  })();
+
+      const result = await dispatchNextDaySchedulePdf({
+        store,
+        teamBotToken: effectiveTeamToken,
+        targetChatIds: teamChatIds,
+        targetIsoDate: nextDay.targetIsoDate,
+        displayDateLabel: nextDay.displayDateLabel,
+        nowMs: now.getTime(),
+      });
+      if (result.ok) {
+        store.markDailyPdfSent(nextDay.targetIsoDate);
+      }
+    };
+
+    const timer = setInterval(() => {
+      void checkAndSendEodPdf();
+    }, 60_000);
+    timer.unref?.();
+  }
 }

@@ -7,9 +7,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildCalendarMonthGrid,
+  buildTeamWhatsAppConfirmationUrl,
   buildTelegramBotDeepLink,
   buildWhatsAppBookingUrl,
   calculateAge,
+  calculateLaserWhiteningPass,
   calculateSmileProgressByDays,
   canEditBooking,
   clampComparisonPercentage,
@@ -17,7 +19,10 @@ import {
   getComparisonCaseForTreatment,
   getRemainingEditWindow,
   getTreatmentById,
+  isStudioWeekday,
   resolveEffectiveTelegram,
+  resolveEffectiveWhatsApp,
+  resolveNextOpenStudioIsoDate,
   sanitizeNameInput,
   validateAccountForm,
   validateAdultDob,
@@ -51,7 +56,12 @@ test('getComparisonCaseForTreatment matches every treatmentId and falls back cle
     treatment: item.name,
     timeframe: item.duration,
     startingPrice: item.startingPrice,
-    retouchMode: item.id === 'cd-veneers' || item.id === 'cd-whitening' ? 'teeth' : 'pair',
+    retouchMode:
+      item.id === 'cd-veneers'
+        ? 'teeth'
+        : item.id === 'cd-whitening'
+          ? 'whitening-pair'
+          : 'pair',
     beforeLabel: 'Before',
     afterLabel: 'After',
     beforeSrc: `/mock/${item.id}-before.jpg`,
@@ -121,6 +131,22 @@ test('validateBookingForm rejects invalid fields and underage DOB', () => {
   assert.ok(invalid.errors.treatmentId);
   assert.ok(invalid.errors.preferredDateTime);
   assert.ok(invalid.errors.telegramValue);
+
+  const weekendBooking = validateBookingForm(
+    {
+      fullName: 'Camille Laurent',
+      phoneCountryCode: '+1',
+      phoneNumber: '3105550142',
+      dob: '1994-03-19',
+      treatmentId: 'cd-veneers',
+      preferredDateTime: '2026-11-21T11:00', // Saturday
+      telegramMethod: 'username',
+      telegramValue: '@camille_laurent',
+    },
+    refDate
+  );
+  assert.equal(weekendBooking.valid, false);
+  assert.match(weekendBooking.errors.preferredDateTime || '', /Monday\s*[–-]\s*Friday/i);
 });
 
 test('validateBookingForm and validateAccountForm accept valid adult payloads', () => {
@@ -251,12 +277,31 @@ test('canEditBooking and getRemainingEditWindow enforce 4-hour post-booking limi
   assert.match(windowInfo.label, /2h 00m/);
 });
 
-test('buildCalendarMonthGrid produces 42 cells with correct month boundaries', () => {
+test('buildCalendarMonthGrid produces 42 cells with dayOfWeek and weekend helpers work', () => {
   const grid = buildCalendarMonthGrid(2026, 10, new Date(2026, 10, 14)); // Nov 2026
   assert.equal(grid.length, 42);
   const todayCell = grid.find(cell => cell.isoDate === '2026-11-14');
   assert.equal(todayCell?.isToday, true);
   assert.equal(todayCell?.inCurrentMonth, true);
+  assert.equal(todayCell?.dayOfWeek, 6); // Saturday
+
+  const sunCell = grid.find(cell => cell.isoDate === '2026-11-15');
+  const friCell = grid.find(cell => cell.isoDate === '2026-11-20');
+  assert.equal(sunCell?.dayOfWeek, 0);
+  assert.equal(friCell?.dayOfWeek, 5);
+
+  assert.equal(isStudioWeekday('2026-11-20T14:30'), true);
+  assert.equal(isStudioWeekday('2026-11-21T14:30'), false);
+  assert.equal(isStudioWeekday('2026-11-22T14:30'), false);
+
+  assert.equal(
+    resolveNextOpenStudioIsoDate('2026-11-21', 2026, 10, new Date(2026, 10, 15)),
+    '2026-11-16'
+  );
+  assert.equal(
+    resolveNextOpenStudioIsoDate('2026-11-20', 2026, 10, new Date(2026, 10, 15)),
+    '2026-11-20'
+  );
 });
 
 test('buildWhatsAppBookingUrl and buildTelegramBotDeepLink format concierge links cleanly', () => {
@@ -278,6 +323,70 @@ test('buildWhatsAppBookingUrl and buildTelegramBotDeepLink format concierge link
 
   const tgUrl = buildTelegramBotDeepLink('@ElaraAtelierBot', 'visit_123');
   assert.equal(tgUrl, 'https://t.me/ElaraAtelierBot?start=visit_123');
+
+  const teamWaUrl = buildTeamWhatsAppConfirmationUrl({
+    patientName: 'Camille Laurent',
+    whatsappDigits: '13105550199',
+    treatmentName: 'Porcelain Veneers (Smile Makeover)',
+    preferredDateTime: '2026-11-20T14:30',
+  });
+  assert.ok(teamWaUrl.startsWith('https://wa.me/13105550199?text='));
+  const teamWaText = decodeURIComponent(teamWaUrl.split('?text=')[1]);
+  assert.match(teamWaText, /Camille Laurent/);
+  assert.match(teamWaText, /Porcelain Veneers/);
+  assert.match(teamWaText, /Beverly Hills/i);
+  assert.match(teamWaText, /Nov 20/i);
+});
+
+test('resolveEffectiveWhatsApp and separate WhatsApp validation behave accurately', () => {
+  const refDate = new Date(2026, 10, 14);
+  const sameAsPhone = resolveEffectiveWhatsApp({
+    phoneCountryCode: '+1',
+    phoneNumber: '3105550148',
+    whatsappSameAsPhone: true,
+    whatsappCountryCode: '+44',
+    whatsappNumber: '7700900123',
+  });
+  assert.deepEqual(sameAsPhone, {
+    countryCode: '+1',
+    number: '3105550148',
+    fullDigits: '13105550148',
+    display: '+1 3105550148',
+  });
+
+  const separate = resolveEffectiveWhatsApp({
+    phoneCountryCode: '+1',
+    phoneNumber: '3105550148',
+    whatsappSameAsPhone: false,
+    whatsappCountryCode: '+44',
+    whatsappNumber: '7700900123',
+  });
+  assert.deepEqual(separate, {
+    countryCode: '+44',
+    number: '7700900123',
+    fullDigits: '447700900123',
+    display: '+44 7700900123',
+  });
+
+  const invalidSeparate = validateBookingForm(
+    {
+      fullName: 'Camille Laurent',
+      phoneCountryCode: '+1',
+      phoneNumber: '3105550148',
+      whatsappSameAsPhone: false,
+      whatsappCountryCode: '+44',
+      whatsappNumber: '12',
+      dob: '1994-03-19',
+      treatmentId: 'cd-veneers',
+      preferredDateTime: '2026-11-20T14:30',
+      telegramSameAsPhone: true,
+      telegramMethod: 'phone',
+      telegramValue: '',
+    },
+    refDate
+  );
+  assert.equal(invalidSeparate.valid, false);
+  assert.ok(invalidSeparate.errors.whatsappNumber);
 });
 
 test('clampComparisonPercentage clamps safely between 5 and 95', () => {
@@ -301,7 +410,21 @@ test('calculateSmileProgressByDays scales whiteness, visits, and charge cleanly'
   assert.ok(day1.afterSepia > day7.afterSepia && day7.afterSepia > day14.afterSepia);
   assert.ok(day1.estimatedCharge < day7.estimatedCharge && day7.estimatedCharge < day14.estimatedCharge);
   assert.equal(day14.afterSepia, 0);
-  assert.equal(day14.formattedCharge, '$15,600');
+  assert.equal(day1.formattedCharge, '$480');
+  assert.equal(day14.formattedCharge, '$1,920');
+});
+
+test('calculateLaserWhiteningPass scales pass timing and blend opacity across 3 passes', () => {
+  const pass1 = calculateLaserWhiteningPass(1);
+  const pass2 = calculateLaserWhiteningPass(2);
+  const pass3 = calculateLaserWhiteningPass(3);
+
+  assert.equal(pass1.durationMinutes, 25);
+  assert.equal(pass2.durationMinutes, 50);
+  assert.equal(pass3.durationMinutes, 75);
+  assert.ok(pass1.blendOpacity < pass2.blendOpacity && pass2.blendOpacity < pass3.blendOpacity);
+  assert.equal(pass3.blendOpacity, 1);
+  assert.equal(calculateLaserWhiteningPass(99).pass, 3);
 });
 
 test('smileRetouch targets only tooth pixels and leaves skin and pink gums untouched', () => {
