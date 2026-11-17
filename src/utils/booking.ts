@@ -19,6 +19,7 @@ export interface BookingFormValues {
   fullName: string;
   phoneCountryCode: string;
   phoneNumber: string;
+  messagingConsent?: boolean;
   whatsappSameAsPhone?: boolean;
   whatsappCountryCode?: string;
   whatsappNumber?: string;
@@ -339,7 +340,7 @@ export function validateBookingForm(
   const phoneError = validatePhoneWithCountryCode(values.phoneCountryCode, values.phoneNumber);
   if (phoneError) errors.phoneNumber = phoneError;
 
-  if (values.whatsappSameAsPhone === false) {
+  if (values.messagingConsent !== false && values.whatsappSameAsPhone === false) {
     const waError = validatePhoneWithCountryCode(
       values.whatsappCountryCode || '+1',
       values.whatsappNumber || ''
@@ -627,12 +628,16 @@ export function buildWhatsAppBookingUrl(
   const telegramDisplay = effectiveTelegram.value;
 
   const lines = [
-    'Hello Elara Atelier Concierge,',
-    'I would like to confirm my private consultation request:',
+    'Hello Elara Atelier Team,',
+    'I would like to confirm my clinic visit request:',
     `• Name: ${values.fullName.trim()}`,
-    `• Phone: ${fullPhone}`,
-    `• WhatsApp: ${effectiveWhatsApp.display}`,
-    `• Telegram: ${telegramDisplay}`,
+    `• Phone (Call): ${fullPhone}`,
+    ...(values.messagingConsent === false
+      ? ['• Contact Preference: Phone Call Only']
+      : [
+          `• WhatsApp: ${effectiveWhatsApp.display}`,
+          `• Telegram: ${telegramDisplay}`,
+        ]),
     `• Treatment: ${treatmentName}`,
     `• Preferred Date & Time: ${formattedTime}`,
   ];

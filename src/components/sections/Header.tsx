@@ -18,14 +18,14 @@ export interface HeaderProps {
   userDisplayName: string | null;
   userPhotoUrl?: string | null;
   bookingCount: number;
-  activeView: 'studio' | 'auth' | 'profile';
+  activeView: 'studio' | 'auth' | 'profile' | 'privacy' | 'terms';
   onReturnStudio: () => void;
 }
 
 const NAV_LINKS = [
   { label: 'Treatments', href: '#treatments' },
   { label: 'Results', href: '#results' },
-  { label: 'Testimonials', href: '#testimonials' },
+  { label: 'Reviews', href: '#testimonials' },
   { label: 'Book Visit', href: '#booking' },
 ] as const;
 

@@ -60,24 +60,24 @@ export const TRUST_METRICS: TrustMetric[] = [
     id: 'years',
     to: 12,
     suffix: '+',
-    label: 'Years of Experience',
-    detail: 'Board-certified cosmetic dentists and facial aesthetic doctors practicing under one roof.',
+    label: 'Years Open',
+    detail: 'Licensed cosmetic dentists and facial doctors working together in one clinic.',
   },
   {
     id: 'procedures',
     to: 4800,
     separator: ',',
     suffix: '+',
-    label: 'Treatments Completed',
-    detail: 'Natural facial balancing, custom porcelain veneers, and gentle skin care sessions.',
+    label: 'Visits Completed',
+    detail: 'Facial balancing, custom porcelain veneers, and gentle skin treatments.',
   },
   {
     id: 'rating',
-    to: 4.9,
+    to: 4.5,
     decimals: 1,
     suffix: '★',
-    label: 'Verified Patient Rating',
-    detail: 'Based on verified patient reviews and post-visit follow-ups.',
+    label: 'Patient Rating',
+    detail: 'Average score from verified patients after their clinic visits.',
   },
 ];
 
@@ -211,30 +211,30 @@ export const TREATMENTS: TreatmentItem[] = [
 
 export const TESTIMONIALS: TestimonialItem[] = [
   {
-    id: 't-camille',
-    patientName: 'Camille Laurent',
-    location: 'Beverly Hills',
-    treatment: 'Porcelain Veneers (Smile Makeover)',
-    rating: 5,
-    quote:
-      'Every detail felt measured rather than rushed. My veneers look completely natural—friends notice I look rested, never overdone.',
-  },
-  {
-    id: 't-julian',
-    patientName: 'Julian Mercer',
-    location: 'Bel Air',
-    treatment: 'Cheek & Jawline Contouring',
-    rating: 5,
-    quote:
-      'The doctors mapped my facial balance alongside my bite. Subtle jawline support restored structure without changing my expression.',
-  },
-  {
-    id: 't-elena',
-    patientName: 'Elena Vance',
+    id: 't-hannah',
+    patientName: 'Hannah Abbott',
     location: 'Santa Monica',
-    treatment: 'Under-Eye Renewal Treatment',
-    rating: 5,
+    treatment: 'Porcelain Veneers (Smile Makeover)',
+    rating: 4.5,
     quote:
-      'Walking into Elara feels like entering a quiet stone sanctuary. Three sessions in, my under-eye skin looks firmer and genuinely brighter.',
+      'I chipped a front tooth years ago and finally got two veneers done here. Had to wait about ten minutes past my appointment time and felt mild sensitivity for a day, but the shade matches my other teeth completely.',
+  },
+  {
+    id: 't-david',
+    patientName: 'David Morales',
+    location: 'West Hollywood',
+    treatment: 'Cheek & Jawline Contouring',
+    rating: 4,
+    quote:
+      'First time trying filler and I was nervous about looking puffy. I did have light swelling for two days after, then it settled nicely. You still look like yourself, just a bit sharper along the jaw.',
+  },
+  {
+    id: 't-priya',
+    patientName: 'Priya Nair',
+    location: 'Beverly Hills',
+    treatment: 'Under-Eye Renewal Treatment',
+    rating: 4.5,
+    quote:
+      'Booking was straightforward and the nurse talked me through every step. It did not erase my dark circles overnight, though after two visits I need way less concealer in the morning.',
   },
 ];

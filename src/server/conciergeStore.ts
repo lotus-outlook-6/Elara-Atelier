@@ -30,6 +30,7 @@ export interface ConciergeBookingRecord {
   fullName: string;
   phoneCountryCode: string;
   phoneNumber: string;
+  messagingConsent?: boolean;
   whatsappCountryCode?: string;
   whatsappNumber?: string;
   treatmentId: string;

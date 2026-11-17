@@ -72,11 +72,12 @@ export const TreatmentsSection: React.FC<TreatmentsSectionProps> = ({
   );
 
   /**
-   * Handle selecting a treatment card without jumping away from the treatments view.
+   * Handle selecting a treatment card: triggers selection and always scrolls down to the preview area.
    * Inputs: TreatmentItem object.
+   * Output: void.
+   * Errors: None.
    */
   const handleSelect = (treatment: TreatmentItem) => {
-    if (isLocked) return;
     onSelectTreatment(treatment.id);
   };
 
@@ -92,15 +93,14 @@ export const TreatmentsSection: React.FC<TreatmentsSectionProps> = ({
           title: treatment.name,
           colSpan: treatment.colSpan ?? 1,
           rowSpan: treatment.rowSpan ?? 1,
-          onClick: isLocked ? undefined : () => handleSelect(treatment),
+          onClick: () => handleSelect(treatment),
           content: (
             <div
-              aria-disabled={isLocked ? 'true' : undefined}
               className={`h-full w-full rounded-[16px] transition-[opacity,colors] duration-200 ${
                 isSelected
                   ? 'border-2 border-[#1F1B18] bg-[#FAF7F2]'
                   : 'border border-[#E2D9CE] bg-[#EFE9E0]'
-              } ${isLocked ? 'pointer-events-none cursor-not-allowed opacity-70' : ''}`}
+              }`}
             >
               {isWide ? (
                 <div className="grid h-full w-full grid-cols-1 gap-4 p-4 text-left sm:grid-cols-12 sm:p-5">
@@ -154,10 +154,8 @@ export const TreatmentsSection: React.FC<TreatmentsSectionProps> = ({
                         </span>
                       ) : (
                         <span className="inline-flex items-center gap-1.5 rounded-lg border border-[#E2D9CE] bg-[#FAF7F2] px-3 py-1.5 text-[11px] font-medium tracking-[0.12em] text-[#1F1B18] uppercase">
-                          {isLocked ? 'Loading Preview' : 'Select Service'}
-                          {!isLocked ? (
-                            <ArrowUpRight className="h-3.5 w-3.5 text-[#B68D5E]" aria-hidden="true" />
-                          ) : null}
+                          {isLocked ? 'View Preview' : 'Select Service'}
+                          <ArrowUpRight className="h-3.5 w-3.5 text-[#B68D5E]" aria-hidden="true" />
                         </span>
                       )}
                     </div>
@@ -214,10 +212,8 @@ export const TreatmentsSection: React.FC<TreatmentsSectionProps> = ({
                       </span>
                     ) : (
                       <span className="inline-flex items-center gap-1 rounded-lg border border-[#E2D9CE] bg-[#FAF7F2] px-2.5 py-1 text-[11px] font-medium tracking-[0.12em] text-[#1F1B18] uppercase">
-                        {isLocked ? 'Loading' : 'Select'}
-                        {!isLocked ? (
-                          <ArrowUpRight className="h-3 w-3 text-[#B68D5E]" aria-hidden="true" />
-                        ) : null}
+                        {isLocked ? 'Preview' : 'Select'}
+                        <ArrowUpRight className="h-3 w-3 text-[#B68D5E]" aria-hidden="true" />
                       </span>
                     )}
                   </div>
@@ -239,7 +235,7 @@ export const TreatmentsSection: React.FC<TreatmentsSectionProps> = ({
         <div className="flex flex-col justify-between gap-6 lg:flex-row lg:items-end lg:gap-8">
           <div className="max-w-2xl">
             <p className="text-[11px] font-semibold tracking-[0.22em] text-[#B68D5E] uppercase">
-              In-Clinic Services · Book by Appointment
+              Our Services · By Appointment
             </p>
             <ScrollReveal
               mode="enter"
@@ -256,16 +252,15 @@ export const TreatmentsSection: React.FC<TreatmentsSectionProps> = ({
             </ScrollReveal>
             <p className="mt-2 min-h-[2.75rem] text-sm leading-relaxed text-[#6E655F]">
               {isLocked
-                ? 'Treatment preview is currently loading below—selection will unlock as soon as it finishes.'
-                : 'Select a treatment below to see real before & after results and pre-fill your booking.'}
+                ? 'Treatment preview is loading below—clicking any card will scroll down to the preview area.'
+                : 'Click any treatment below to scroll down to before & after photos and start your booking.'}
             </p>
           </div>
 
-          {/* Interactive Category Filter Tabs (Locked cleanly while preview is loading) */}
+          {/* Interactive Category Filter Tabs */}
           <div
             role="tablist"
             aria-label="Treatment categories"
-            aria-disabled={isLocked ? 'true' : undefined}
             className="flex w-full items-center gap-1.5 overflow-x-auto border-b border-[#E2D9CE] pb-2 lg:w-auto lg:shrink-0 lg:overflow-visible"
           >
             {TREATMENT_CATEGORIES.map(category => {
@@ -276,11 +271,8 @@ export const TreatmentsSection: React.FC<TreatmentsSectionProps> = ({
                   type="button"
                   role="tab"
                   aria-selected={active}
-                  disabled={isLocked}
-                  onClick={() => {
-                    if (!isLocked) setActiveCategory(category);
-                  }}
-                  className={`shrink-0 cursor-pointer rounded-lg px-3.5 py-2 text-[11px] font-semibold tracking-[0.12em] whitespace-nowrap uppercase transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-50 sm:px-4 sm:text-xs ${
+                  onClick={() => setActiveCategory(category)}
+                  className={`shrink-0 cursor-pointer rounded-lg px-3.5 py-2 text-[11px] font-semibold tracking-[0.12em] whitespace-nowrap uppercase transition-colors duration-200 sm:px-4 sm:text-xs ${
                     active
                       ? 'bg-[#1F1B18] text-[#FAF7F2]'
                       : 'bg-transparent text-[#6E655F] hover:bg-[#EFE9E0] hover:text-[#1F1B18]'

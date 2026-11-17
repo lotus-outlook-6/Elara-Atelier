@@ -434,7 +434,7 @@ export const AuthSection: React.FC<AuthSectionProps> = ({
                                   autoComplete="email"
                                   value={loginEmail}
                                   onChange={e => setLoginEmail(e.target.value)}
-                                  placeholder="camille@example.com"
+                                  placeholder="hannah@example.com"
                                   className="h-11 w-full rounded-[10px] border border-[#E2D9CE] bg-[#FAF7F2] pr-3.5 pl-10 text-sm text-[#1F1B18] outline-none transition-colors focus:border-[#B68D5E]"
                                 />
                               </div>
@@ -558,7 +558,7 @@ export const AuthSection: React.FC<AuthSectionProps> = ({
                                     }));
                                   }
                                 }}
-                                placeholder="Camille Laurent"
+                                placeholder="Hannah Abbott"
                                 className="h-11 w-full rounded-[10px] border border-[#E2D9CE] bg-[#FAF7F2] pr-3.5 pl-10 text-sm text-[#1F1B18] outline-none transition-colors focus:border-[#B68D5E]"
                               />
                             </div>
@@ -584,7 +584,7 @@ export const AuthSection: React.FC<AuthSectionProps> = ({
                                   autoComplete="email"
                                   value={registerValues.email}
                                   onChange={e => updateRegField('email', e.target.value)}
-                                  placeholder="camille@example.com"
+                                  placeholder="hannah@example.com"
                                   className="h-11 w-full rounded-[10px] border border-[#E2D9CE] bg-[#FAF7F2] px-3.5 text-sm text-[#1F1B18] outline-none transition-colors focus:border-[#B68D5E]"
                                 />
                                 {errors.email ? (
@@ -625,7 +625,7 @@ export const AuthSection: React.FC<AuthSectionProps> = ({
                               htmlFor="reg-phone"
                               className="mb-1.5 block text-xs font-semibold tracking-[0.12em] text-[#1F1B18] uppercase"
                             >
-                              Phone Number (with Country Code)
+                              Phone Number (For Call Purposes)
                             </label>
                             <div className="flex gap-2 sm:gap-2.5">
                               <GlideSelect

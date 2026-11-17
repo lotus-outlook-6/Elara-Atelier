@@ -469,3 +469,30 @@ test('smileRetouch targets only tooth pixels and leaves skin and pink gums untou
   assert.deepEqual(applyAfterToothWhitening(206, 165, 142, 0, 0), [206, 165, 142]);
   assert.deepEqual(applyAfterToothWhitening(206, 165, 142, 0, 1), [206, 165, 142]);
 });
+
+test('validateBookingForm and buildWhatsAppBookingUrl support Phone Call Only opt-out', () => {
+  const refDate = new Date(2026, 10, 14);
+  const callOnlyValues = {
+    fullName: 'Hannah Abbott',
+    phoneCountryCode: '+1',
+    phoneNumber: '3105550148',
+    messagingConsent: false,
+    whatsappSameAsPhone: false,
+    whatsappCountryCode: '+1',
+    whatsappNumber: '',
+    dob: '1994-03-19',
+    treatmentId: 'cd-veneers',
+    preferredDateTime: '2026-11-20T14:30',
+    telegramSameAsPhone: true,
+    telegramMethod: 'phone' as const,
+    telegramValue: '',
+  };
+
+  const validation = validateBookingForm(callOnlyValues, refDate);
+  assert.equal(validation.valid, true);
+  assert.deepEqual(validation.errors, {});
+
+  const url = buildWhatsAppBookingUrl('13105550194', callOnlyValues);
+  const decoded = decodeURIComponent(url.split('?text=')[1]);
+  assert.match(decoded, /Phone Call Only/i);
+});

@@ -49,6 +49,7 @@ interface TelegramNotifyBody {
   phoneCountryCode?: string;
   phoneNumber?: string;
   phone?: string;
+  messagingConsent?: boolean;
   whatsappCountryCode?: string;
   whatsappNumber?: string;
   treatmentId?: string;
@@ -529,9 +530,11 @@ export function createExpressApp(): CreateAppResult {
       ''
     );
 
+    const messagingConsent = body.messagingConsent !== false;
     const whatsappCode = String(body.whatsappCountryCode || primaryCode).trim() || '+1';
-    const whatsappDigits =
-      String(body.whatsappNumber || primaryDigits).replace(/\D/g, '') || primaryDigits;
+    const whatsappDigits = messagingConsent
+      ? String(body.whatsappNumber || primaryDigits).replace(/\D/g, '') || primaryDigits
+      : '';
 
     const record = store.upsertBooking({
       id: bookingId,
@@ -539,8 +542,9 @@ export function createExpressApp(): CreateAppResult {
       fullName: String(body.fullName || 'Guest'),
       phoneCountryCode: primaryCode,
       phoneNumber: primaryDigits,
-      whatsappCountryCode: whatsappCode,
-      whatsappNumber: whatsappDigits,
+      messagingConsent,
+      whatsappCountryCode: messagingConsent ? whatsappCode : undefined,
+      whatsappNumber: messagingConsent ? whatsappDigits : undefined,
       treatmentId: String(body.treatmentId || 'consultation'),
       treatmentName: String(body.treatmentName || 'Consultation'),
       preferredDateTime: String(body.preferredDateTime || ''),
@@ -554,6 +558,18 @@ export function createExpressApp(): CreateAppResult {
 
     // Always notify Doctors / Clinical Team Bot individually for every patient booking
     const teamDeliveredCount = await pushIndividualTeamBookingAlert(store, record);
+
+    if (!messagingConsent) {
+      res.json({
+        ok: true,
+        sent: false,
+        teamNotified: teamDeliveredCount > 0,
+        mode: 'call_only',
+        deepLink,
+        message: 'Patient requested phone call confirmation only.',
+      });
+      return;
+    }
 
     if (!botToken) {
       res.json({

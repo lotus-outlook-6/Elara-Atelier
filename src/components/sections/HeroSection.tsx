@@ -132,12 +132,12 @@ export const HeroSection: React.FC<HeroSectionProps> = ({ onReserveClick }) => {
         {/* Left Editorial Column */}
         <div className="lg:col-span-7">
           <p className="mb-5 text-[11px] font-medium tracking-[0.22em] text-[#6E655F] uppercase sm:text-xs">
-            Beverly Hills · Facial Aesthetics &amp; Cosmetic Dentistry
+            Beverly Hills · Facial, Dental &amp; Skin Care
           </p>
 
           <MaskedHeading
             tag="h1"
-            text="Precision Aesthetics. Effortless Confidence."
+            text="Natural Care. Everyday Confidence."
             src={HERO_HEADING_TEXTURE}
             align="left"
             weight={600}
@@ -154,7 +154,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({ onReserveClick }) => {
           />
 
           <BlurText
-            text="Gentle facial balancing, custom porcelain veneers, and restorative skin treatments tailored for comfort and natural-looking results."
+            text="Gentle facial treatments, custom porcelain veneers, and skin care focused on comfort and natural-looking results."
             trigger="load"
             delay={35}
             stepDuration={0.32}
@@ -180,7 +180,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({ onReserveClick }) => {
               onHold={onReserveClick}
               className="w-full text-xs font-medium tracking-[0.04em] sm:w-auto sm:text-sm"
             >
-              Reserve Consultation
+              Book a Visit
             </HoldButton>
 
             <div className="flex items-center gap-2 pl-1">
@@ -212,7 +212,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({ onReserveClick }) => {
             onCardClick={handleCardClick}
           />
           <p className="mt-5 text-center text-xs tracking-[0.16em] text-[#6E655F] uppercase lg:text-right">
-            Private Lounge · Calm Treatment Suites · Custom Care
+            Private Lounge · Calm Treatment Rooms · Personal Care
           </p>
         </div>
       </div>

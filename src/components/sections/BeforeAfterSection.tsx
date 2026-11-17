@@ -123,14 +123,14 @@ async function fetchAndDecodeImage(
 
     if (response.body && Number.isFinite(totalBytes) && totalBytes > 0) {
       const reader = response.body.getReader();
-      const chunks: Uint8Array[] = [];
+      const chunks: BlobPart[] = [];
       let received = 0;
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
         if (value) {
-          chunks.push(value);
+          chunks.push(new Uint8Array(value));
           received += value.byteLength;
           onFraction(Math.min(0.95, received / totalBytes));
         }
@@ -311,39 +311,43 @@ export const BeforeAfterSection: React.FC<BeforeAfterSectionProps> = ({
         if (revoke) objectUrlsToRevoke.push(url);
         if (cancelled || loadSeqRef.current !== seq) return;
 
-        if (img && img.naturalWidth > 0) {
-          const maxDim = 960;
-          const scale = Math.min(1, maxDim / Math.max(img.naturalWidth || 1, img.naturalHeight || 1));
-          const width = Math.max(1, Math.round((img.naturalWidth || 960) * scale));
-          const height = Math.max(1, Math.round((img.naturalHeight || 720) * scale));
+        window.setTimeout(() => {
+          if (cancelled || loadSeqRef.current !== seq) return;
 
-          const scratch = document.createElement('canvas');
-          scratch.width = width;
-          scratch.height = height;
-          const scratchCtx = scratch.getContext('2d', { willReadFrequently: true });
-          if (scratchCtx) {
-            scratchCtx.drawImage(img, 0, 0, width, height);
-            const baseData = scratchCtx.getImageData(0, 0, width, height);
-            const toothMask = buildToothMaskBuffer(baseData.data, width, height);
+          if (img && img.naturalWidth > 0) {
+            const maxDim = 720;
+            const scale = Math.min(1, maxDim / Math.max(img.naturalWidth || 1, img.naturalHeight || 1));
+            const width = Math.max(1, Math.round((img.naturalWidth || 720) * scale));
+            const height = Math.max(1, Math.round((img.naturalHeight || 540) * scale));
 
-            pixelCacheRef.current = {
-              width,
-              height,
-              baseRgba: baseData.data,
-              toothMask,
-            };
-            setPixelCacheVersion(prev => prev + 1);
+            const scratch = document.createElement('canvas');
+            scratch.width = width;
+            scratch.height = height;
+            const scratchCtx = scratch.getContext('2d', { willReadFrequently: true });
+            if (scratchCtx) {
+              scratchCtx.drawImage(img, 0, 0, width, height);
+              const baseData = scratchCtx.getImageData(0, 0, width, height);
+              const toothMask = buildToothMaskBuffer(baseData.data, width, height);
+
+              pixelCacheRef.current = {
+                width,
+                height,
+                baseRgba: baseData.data,
+                toothMask,
+              };
+              setPixelCacheVersion(prev => prev + 1);
+            }
           }
-        }
 
-        afterFraction = 1;
-        setResolvedMedia({
-          treatmentId: activeCase.treatmentId,
-          beforeUrl: url,
-          afterUrl: url,
-        });
-        setCanvasReady(true);
-        finalizeReady();
+          afterFraction = 1;
+          setResolvedMedia({
+            treatmentId: activeCase.treatmentId,
+            beforeUrl: url,
+            afterUrl: url,
+          });
+          setCanvasReady(true);
+          finalizeReady();
+        }, 40);
       });
     } else {
       Promise.all([
@@ -516,7 +520,7 @@ export const BeforeAfterSection: React.FC<BeforeAfterSectionProps> = ({
       className="scroll-mt-20 border-b border-[#E2D9CE] bg-[#EFE9E0]/55 py-16 sm:py-20 md:scroll-mt-24 md:py-24 2xl:py-28"
     >
       <div className="mx-auto max-w-7xl px-4 sm:px-8 2xl:max-w-[1440px]">
-        <FadeContent trigger="scroll" effect="fade" duration={0.85} threshold={0.12}>
+        <FadeContent trigger="mount" effect="fade" duration={0.45}>
           <div className="grid grid-cols-1 items-center gap-10 lg:grid-cols-12 lg:gap-12 2xl:gap-16">
             {/* Editorial Copy, Service Switcher & Action Column */}
             <div className="lg:col-span-5">

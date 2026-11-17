@@ -1,6 +1,6 @@
 /**
- * Verified Patient Testimonials section rendering 3 editorial review cards
- * paired with clinical studio photography inside FadeContent and GlareHover containers.
+ * Patient Reviews section rendering 3 authentic patient review cards
+ * with real 4 and 4.5 star ratings and natural daylight patient portraits.
  */
 
 import React from 'react';
@@ -11,8 +11,61 @@ import FadeContent from '../reactbits/FadeContent';
 import GlareHover from '../reactbits/GlareHover';
 
 /**
- * Three-column editorial testimonial section with treatment photography and GlareHover sheen.
- * Output: Rendered patient testimonials section.
+ * Render a 5-star row supporting full and half stars (e.g. 4 and 4.5).
+ * Inputs: rating number out of 5.
+ * Output: React node showing 5 star icons plus numeric score.
+ * Errors: None.
+ */
+function renderRatingStars(rating: number) {
+  return (
+    <div
+      className="flex items-center gap-1"
+      aria-label={`${rating} out of 5 stars`}
+    >
+      {Array.from({ length: 5 }).map((_, idx) => {
+        const isFull = rating >= idx + 1;
+        const isHalf = !isFull && rating >= idx + 0.5;
+
+        if (isFull) {
+          return (
+            <Star
+              key={idx}
+              className="h-3.5 w-3.5 fill-[#B68D5E] text-[#B68D5E]"
+              aria-hidden="true"
+            />
+          );
+        }
+
+        if (isHalf) {
+          return (
+            <span key={idx} className="relative inline-block h-3.5 w-3.5" aria-hidden="true">
+              <Star className="h-3.5 w-3.5 text-[#B68D5E]/40" />
+              <span className="absolute inset-y-0 left-0 w-1/2 overflow-hidden">
+                <Star className="h-3.5 w-3.5 fill-[#B68D5E] text-[#B68D5E]" />
+              </span>
+            </span>
+          );
+        }
+
+        return (
+          <Star
+            key={idx}
+            className="h-3.5 w-3.5 text-[#B68D5E]/40"
+            aria-hidden="true"
+          />
+        );
+      })}
+      <span className="ml-1.5 text-xs font-medium text-[#6E655F] tabular-nums">
+        {rating.toFixed(1)}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * Three-column patient reviews section with natural portraits and verified visit labels.
+ * Output: Rendered patient reviews section.
+ * Errors: None.
  */
 export const TestimonialsSection: React.FC = () => {
   return (
@@ -23,10 +76,10 @@ export const TestimonialsSection: React.FC = () => {
       <div className="mx-auto max-w-7xl px-4 sm:px-8 2xl:max-w-[1440px]">
         <div className="max-w-2xl">
           <p className="text-[11px] font-semibold tracking-[0.22em] text-[#B68D5E] uppercase">
-            Patient Voices
+            Patient Reviews
           </p>
           <h2 className="mt-3 font-serif text-3xl leading-[1.12] font-semibold tracking-tight text-[#1F1B18] sm:text-4xl lg:text-5xl">
-            Quiet Transformations, Verified in Person
+            What Our Patients Say
           </h2>
         </div>
 
@@ -43,7 +96,7 @@ export const TestimonialsSection: React.FC = () => {
                     {media ? (
                       <GlareHover
                         width="100%"
-                        height="160px"
+                        height="184px"
                         background="#E5DACB"
                         borderRadius="12px"
                         borderColor="#E2D9CE"
@@ -52,31 +105,20 @@ export const TestimonialsSection: React.FC = () => {
                         variant="sheen"
                         playOnce={true}
                         transitionDuration={550}
-                        className="mb-5 !block h-40 w-full overflow-hidden 2xl:h-48"
+                        className="mb-5 !block h-46 w-full overflow-hidden 2xl:h-52"
                       >
                         <img
                           src={media.src}
                           alt={media.alt}
                           referrerPolicy="no-referrer"
-                          className="h-full w-full object-cover"
+                          className={`h-full w-full object-cover ${media.objectPosition ?? 'object-center'}`}
                         />
                       </GlareHover>
                     ) : null}
 
-                    <div
-                      className="flex items-center gap-1"
-                      aria-label={`${item.rating} out of 5 stars`}
-                    >
-                      {Array.from({ length: item.rating }).map((_, idx) => (
-                        <Star
-                          key={idx}
-                          className="h-3.5 w-3.5 fill-[#B68D5E] text-[#B68D5E]"
-                          aria-hidden="true"
-                        />
-                      ))}
-                    </div>
+                    {renderRatingStars(item.rating)}
 
-                    <blockquote className="mt-4 font-serif text-xl leading-relaxed text-[#1F1B18]">
+                    <blockquote className="mt-4 text-base leading-relaxed text-[#1F1B18]">
                       “{item.quote}”
                     </blockquote>
                   </div>

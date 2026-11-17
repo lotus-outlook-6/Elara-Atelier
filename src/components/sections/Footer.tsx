@@ -1,17 +1,29 @@
 /**
  * Editorial footer for Elara Atelier in Deep Espresso (#1F1B18)
  * with Alabaster Ivory (#FAF7F2) typography, studio navigation,
- * operating hours, and clinical address.
+ * Privacy Policy & Terms & Conditions links, operating hours, and clinical address.
  */
 
 import React from 'react';
 import { CLINIC_CONFIG } from '../../config/clinicConfig';
 
+export interface FooterProps {
+  onOpenPrivacy: () => void;
+  onOpenTerms: () => void;
+  onReturnStudio: () => void;
+}
+
 /**
- * Editorial footer with balanced 3-column directory and legal row.
+ * Editorial footer with balanced 3-column directory and clickable legal links.
+ * Inputs: navigation callbacks for Privacy Policy, Terms & Conditions, and returning to Studio.
  * Output: Rendered footer element.
+ * Errors: None.
  */
-export const Footer: React.FC = () => {
+export const Footer: React.FC<FooterProps> = ({
+  onOpenPrivacy,
+  onOpenTerms,
+  onReturnStudio,
+}) => {
   return (
     <footer className="bg-[#1F1B18] text-[#FAF7F2] selection:bg-[#D8BA94] selection:text-[#1F1B18]">
       <div className="mx-auto max-w-7xl px-4 py-14 sm:px-8 sm:py-16 2xl:max-w-[1440px]">
@@ -28,33 +40,48 @@ export const Footer: React.FC = () => {
               </p>
             </div>
             <p className="mt-3 max-w-sm text-sm leading-relaxed text-[#E2D9CE]/80">
-              {CLINIC_CONFIG.tagline}. Gentle facial, dental, and skin care tailored for comfort
-              and natural-looking results.
+              Gentle facial, dental, and skin care focused on comfort and natural-looking results.
             </p>
           </div>
 
           <div className="md:col-span-3">
             <h3 className="font-sans text-[11px] font-semibold tracking-[0.2em] text-[#B68D5E] uppercase">
-              Studio Index
+              Quick Links
             </h3>
             <ul className="mt-4 space-y-2.5 text-sm text-[#E2D9CE]/85">
               <li>
-                <a href="#treatments" className="no-underline transition-colors hover:text-[#FAF7F2]">
+                <a
+                  href="#treatments"
+                  onClick={onReturnStudio}
+                  className="no-underline transition-colors hover:text-[#FAF7F2]"
+                >
                   Treatments
                 </a>
               </li>
               <li>
-                <a href="#results" className="no-underline transition-colors hover:text-[#FAF7F2]">
+                <a
+                  href="#results"
+                  onClick={onReturnStudio}
+                  className="no-underline transition-colors hover:text-[#FAF7F2]"
+                >
                   Before &amp; After
                 </a>
               </li>
               <li>
-                <a href="#testimonials" className="no-underline transition-colors hover:text-[#FAF7F2]">
-                  Testimonials
+                <a
+                  href="#testimonials"
+                  onClick={onReturnStudio}
+                  className="no-underline transition-colors hover:text-[#FAF7F2]"
+                >
+                  Reviews
                 </a>
               </li>
               <li>
-                <a href="#booking" className="no-underline transition-colors hover:text-[#FAF7F2]">
+                <a
+                  href="#booking"
+                  onClick={onReturnStudio}
+                  className="no-underline transition-colors hover:text-[#FAF7F2]"
+                >
                   Book Visit
                 </a>
               </li>
@@ -79,7 +106,22 @@ export const Footer: React.FC = () => {
 
         <div className="mt-12 flex flex-col justify-between gap-4 border-t border-[#E2D9CE]/15 pt-6 text-xs text-[#E2D9CE]/65 sm:flex-row sm:items-center">
           <p>© {new Date().getFullYear()} {CLINIC_CONFIG.fullTitle}. All rights reserved.</p>
-          <p>Board-Certified Facial Aesthetics &amp; Cosmetic Dentistry</p>
+          <div className="flex flex-wrap items-center gap-5">
+            <button
+              type="button"
+              onClick={onOpenPrivacy}
+              className="cursor-pointer bg-transparent p-0 text-xs text-[#E2D9CE]/85 underline underline-offset-4 transition-colors hover:text-[#FAF7F2]"
+            >
+              Privacy Policy
+            </button>
+            <button
+              type="button"
+              onClick={onOpenTerms}
+              className="cursor-pointer bg-transparent p-0 text-xs text-[#E2D9CE]/85 underline underline-offset-4 transition-colors hover:text-[#FAF7F2]"
+            >
+              Terms &amp; Conditions
+            </button>
+          </div>
         </div>
       </div>
     </footer>

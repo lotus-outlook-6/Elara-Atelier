@@ -16,6 +16,7 @@ import BookingSection from './components/sections/BookingSection';
 import Footer from './components/sections/Footer';
 import Header from './components/sections/Header';
 import HeroSection from './components/sections/HeroSection';
+import LegalSection from './components/sections/LegalSection';
 import ProfileSection from './components/sections/ProfileSection';
 import TestimonialsSection from './components/sections/TestimonialsSection';
 import TrustMetricsSection from './components/sections/TrustMetricsSection';
@@ -30,8 +31,66 @@ interface ToastState {
   description: string;
 }
 
+let pendingScrollRaf = 0;
+let pendingScrollCheckTimer = 0;
+
 /**
- * Inner application shell consuming AuthContext for header, auth portal, booking, and profile views.
+ * Compute the vertical scroll target for the Before & After preview section (#results)
+ * adjusted for the sticky header height.
+ * Inputs: none.
+ * Output: target scrollY coordinate in pixels, or null if #results is missing.
+ * Errors: None.
+ */
+function getResultsTargetTop(): { targetTop: number; headerOffset: number } | null {
+  const resultsEl = document.getElementById('results');
+  if (!resultsEl) return null;
+  const headerOffset = window.innerWidth >= 768 ? 84 : 68;
+  const targetTop = Math.max(
+    0,
+    Math.round(resultsEl.getBoundingClientRect().top + window.scrollY - headerOffset)
+  );
+  return { targetTop, headerOffset };
+}
+
+/**
+ * Smoothly scroll the viewport down to the Before & After preview section (#results)
+ * while clearing the sticky header cleanly and recovering if an animation stalls.
+ * Inputs: none.
+ * Output: void.
+ * Errors: None.
+ */
+function scrollToResultsSection(): void {
+  if (pendingScrollRaf) {
+    window.cancelAnimationFrame(pendingScrollRaf);
+    pendingScrollRaf = 0;
+  }
+  if (pendingScrollCheckTimer) {
+    window.clearTimeout(pendingScrollCheckTimer);
+    pendingScrollCheckTimer = 0;
+  }
+
+  pendingScrollRaf = window.requestAnimationFrame(() => {
+    pendingScrollRaf = 0;
+    const coords = getResultsTargetTop();
+    if (!coords) return;
+    window.scrollTo({ top: coords.targetTop, behavior: 'smooth' });
+
+    pendingScrollCheckTimer = window.setTimeout(() => {
+      pendingScrollCheckTimer = 0;
+      const resultsEl = document.getElementById('results');
+      if (!resultsEl) return;
+      const nextCoords = getResultsTargetTop();
+      if (!nextCoords) return;
+      const currentTop = resultsEl.getBoundingClientRect().top;
+      if (Math.abs(currentTop - nextCoords.headerOffset) > 120) {
+        window.scrollTo({ top: nextCoords.targetTop, behavior: 'smooth' });
+      }
+    }, 620);
+  });
+}
+
+/**
+ * Inner application shell consuming AuthContext for header, auth portal, booking, legal, and profile views.
  */
 function AtelierShell() {
   const {
@@ -53,7 +112,7 @@ function AtelierShell() {
   });
   const [selectedTreatmentId, setSelectedTreatmentId] = useState<string>(TREATMENTS[0].id);
   const [previewLoading, setPreviewLoading] = useState<boolean>(true);
-  const [activeView, setActiveView] = useState<'studio' | 'auth' | 'profile'>('studio');
+  const [activeView, setActiveView] = useState<'studio' | 'auth' | 'profile' | 'privacy' | 'terms'>('studio');
   const [mapsQuotaExceeded, setMapsQuotaExceeded] = useState<boolean>(false);
   const [toast, setToast] = useState<ToastState>({
     open: false,
@@ -133,17 +192,20 @@ function AtelierShell() {
   };
 
   /**
-   * Open an in-page view (auth or profile) and smoothly bring it to the top of the viewport.
-   * Inputs: target view ('auth' | 'profile').
+   * Open an in-page portal or legal view and smoothly scroll to the top of the viewport.
+   * Inputs: target view ('auth' | 'profile' | 'privacy' | 'terms').
    */
-  const openPortalView = (view: 'auth' | 'profile') => {
+  const openPortalView = (view: 'auth' | 'profile' | 'privacy' | 'terms') => {
     setActiveView(view);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    window.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior });
+    window.setTimeout(() => {
+      window.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior });
+    }, 60);
   };
 
   /**
    * Smoothly scroll the viewport to the appointment booking section,
-   * switching back from Auth or Profile view if active.
+   * switching back from Auth, Profile, or Legal view if active.
    */
   const scrollToBooking = () => {
     if (activeView !== 'studio') {
@@ -158,16 +220,17 @@ function AtelierShell() {
   };
 
   /**
-   * Select a treatment from the Treatments catalog and smoothly scroll to the Before & After preview.
+   * Handle clicking any treatment card in the Treatments section:
+   * updates the active preview treatment when unlocked and always scrolls smoothly down to #results.
    * Inputs: treatmentId string.
+   * Output: void.
+   * Errors: None.
    */
   const handleCatalogTreatmentSelect = (treatmentId: string) => {
-    if (previewLoading) return;
-    setSelectedTreatmentId(treatmentId);
-    window.requestAnimationFrame(() => {
-      const resultsEl = document.getElementById('results');
-      resultsEl?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    });
+    if (!previewLoading) {
+      setSelectedTreatmentId(treatmentId);
+    }
+    scrollToResultsSection();
   };
 
   /**
@@ -292,6 +355,23 @@ function AtelierShell() {
                   }}
                 />
               </motion.div>
+            ) : activeView === 'privacy' || activeView === 'terms' ? (
+              <motion.div
+                key={`legal-${activeView}`}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                transition={{ duration: 0.25, ease: [0.23, 1, 0.32, 1] }}
+              >
+                <LegalSection
+                  page={activeView}
+                  onBackToStudio={() => {
+                    setActiveView('studio');
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                  }}
+                  onSwitchPage={nextPage => openPortalView(nextPage)}
+                />
+              </motion.div>
             ) : (
               <motion.div
                 key="studio-view"
@@ -326,7 +406,11 @@ function AtelierShell() {
           </AnimatePresence>
         </main>
 
-        <Footer />
+        <Footer
+          onOpenPrivacy={() => openPortalView('privacy')}
+          onOpenTerms={() => openPortalView('terms')}
+          onReturnStudio={() => setActiveView('studio')}
+        />
 
         {toast.open ? (
           <SwipeToast

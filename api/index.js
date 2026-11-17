@@ -24856,27 +24856,28 @@ function resolveBookingWhatsAppDisplay(booking) {
   return { digits, display };
 }
 function buildTeamPatientAlertCard(booking, heading = "ELARA ATELIER \xB7 PATIENT BOOKING") {
+  const allowsMessaging = booking.messagingConsent !== false;
   const wa = resolveBookingWhatsAppDisplay(booking);
-  const waUrl = wa.digits ? buildTeamWhatsAppConfirmationUrl({
+  const waUrl = allowsMessaging && wa.digits ? buildTeamWhatsAppConfirmationUrl({
     patientName: booking.fullName,
     whatsappDigits: wa.digits,
     treatmentName: booking.treatmentName,
     preferredDateTime: booking.preferredDateTime
   }) : "";
-  const statusBadge = booking.status === "confirmed" ? "\u2705 CONFIRMED" : booking.status === "cancelled" ? "\u274C CANCELLED" : "\u23F3 AWAITING WHATSAPP CONFIRMATION";
+  const statusBadge = booking.status === "confirmed" ? "\u2705 CONFIRMED" : booking.status === "cancelled" ? "\u274C CANCELLED" : allowsMessaging ? "\u23F3 AWAITING WHATSAPP CONFIRMATION" : "\u{1F4DE} AWAITING PHONE CALL CONFIRMATION";
   const lines = [
     `<b>${escapeTelegramHtml(heading)}</b>`,
     ``,
     `<b>Patient:</b> ${escapeTelegramHtml(booking.fullName)}`,
     `<b>Treatment:</b> ${escapeTelegramHtml(booking.treatmentName)}`,
     `<b>Date &amp; Time:</b> ${escapeTelegramHtml(formatBotDateTime(booking.preferredDateTime))}`,
-    `<b>WhatsApp:</b> <code>${escapeTelegramHtml(wa.display)}</code>`,
-    `<b>Phone:</b> <code>${escapeTelegramHtml(`${booking.phoneCountryCode} ${booking.phoneNumber}`)}</code>`,
-    `<b>Telegram:</b> ${escapeTelegramHtml(booking.telegramValue || "Same as phone")}`,
+    allowsMessaging ? `<b>WhatsApp:</b> <code>${escapeTelegramHtml(wa.display)}</code>` : `<b>Contact Rule:</b> Phone Call Only (No WhatsApp / Telegram consent)`,
+    `<b>Phone (Call):</b> <code>${escapeTelegramHtml(`${booking.phoneCountryCode} ${booking.phoneNumber}`)}</code>`,
+    ...allowsMessaging ? [`<b>Telegram:</b> ${escapeTelegramHtml(booking.telegramValue || "Same as phone")}`] : [],
     `<b>Status:</b> <b>${statusBadge}</b>`,
     `<b>Ref:</b> <code>${escapeTelegramHtml(booking.id)}</code>`
   ];
-  const handle = booking.telegramMethod === "username" ? normalizeTelegramHandle(booking.telegramValue) : "";
+  const handle = allowsMessaging && booking.telegramMethod === "username" ? normalizeTelegramHandle(booking.telegramValue) : "";
   const inline_keyboard = [];
   if (waUrl && booking.status !== "cancelled") {
     inline_keyboard.push([
@@ -25579,16 +25580,18 @@ function createExpressApp() {
       /\D/g,
       ""
     );
+    const messagingConsent = body.messagingConsent !== false;
     const whatsappCode = String(body.whatsappCountryCode || primaryCode).trim() || "+1";
-    const whatsappDigits = String(body.whatsappNumber || primaryDigits).replace(/\D/g, "") || primaryDigits;
+    const whatsappDigits = messagingConsent ? String(body.whatsappNumber || primaryDigits).replace(/\D/g, "") || primaryDigits : "";
     const record = store.upsertBooking({
       id: bookingId,
       userId: body.userId ? String(body.userId) : null,
       fullName: String(body.fullName || "Guest"),
       phoneCountryCode: primaryCode,
       phoneNumber: primaryDigits,
-      whatsappCountryCode: whatsappCode,
-      whatsappNumber: whatsappDigits,
+      messagingConsent,
+      whatsappCountryCode: messagingConsent ? whatsappCode : void 0,
+      whatsappNumber: messagingConsent ? whatsappDigits : void 0,
       treatmentId: String(body.treatmentId || "consultation"),
       treatmentName: String(body.treatmentName || "Consultation"),
       preferredDateTime: String(body.preferredDateTime || ""),
@@ -25600,6 +25603,17 @@ function createExpressApp() {
       chatId: body.chatId?.trim() || void 0
     });
     const teamDeliveredCount = await pushIndividualTeamBookingAlert(store, record);
+    if (!messagingConsent) {
+      res.json({
+        ok: true,
+        sent: false,
+        teamNotified: teamDeliveredCount > 0,
+        mode: "call_only",
+        deepLink,
+        message: "Patient requested phone call confirmation only."
+      });
+      return;
+    }
     if (!botToken) {
       res.json({
         ok: true,

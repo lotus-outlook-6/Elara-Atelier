@@ -94,7 +94,7 @@ const StudioMap: React.FC = () => {
   if (!apiKey || apiLoadError) {
     return (
       <div
-        className="relative h-64 w-full overflow-hidden rounded-xl border border-[#E2D9CE] bg-[#FAF7F2] sm:h-72 2xl:h-80"
+        className="relative h-48 w-full overflow-hidden rounded-xl border border-[#E2D9CE] bg-[#FAF7F2] sm:h-52"
         data-testid="studio-map-fallback"
       >
         <iframe
@@ -109,7 +109,7 @@ const StudioMap: React.FC = () => {
 
   return (
     <div
-      className="relative h-64 w-full overflow-hidden rounded-xl border border-[#E2D9CE] bg-[#FAF7F2] sm:h-72 2xl:h-80"
+      className="relative h-48 w-full overflow-hidden rounded-xl border border-[#E2D9CE] bg-[#FAF7F2] sm:h-52"
       data-testid="studio-map-interactive"
     >
       <APIProvider

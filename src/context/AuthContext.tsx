@@ -776,6 +776,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const effectiveWhatsApp = resolveEffectiveWhatsApp(values);
     const telegramDeepLink = buildTelegramBotDeepLink(telegramStatus.botUsername, bookingId);
 
+    const allowsMessaging = values.messagingConsent !== false;
     let serverDispatched = false;
     let notifyStatus: BookingRecord['telegramNotifyStatus'] = 'deep_link_ready';
 
@@ -789,8 +790,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           fullName: values.fullName.trim(),
           phoneCountryCode: values.phoneCountryCode.trim(),
           phoneNumber: values.phoneNumber.replace(/\D/g, ''),
-          whatsappCountryCode: effectiveWhatsApp.countryCode,
-          whatsappNumber: effectiveWhatsApp.number,
+          messagingConsent: allowsMessaging,
+          ...(allowsMessaging
+            ? {
+                whatsappCountryCode: effectiveWhatsApp.countryCode,
+                whatsappNumber: effectiveWhatsApp.number,
+              }
+            : {}),
           phone: `${values.phoneCountryCode.trim()} ${values.phoneNumber.replace(/\D/g, '')}`,
           treatmentId: values.treatmentId,
           treatmentName,
@@ -818,8 +824,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         fullName: values.fullName.trim(),
         phoneCountryCode: values.phoneCountryCode.trim(),
         phoneNumber: values.phoneNumber.replace(/\D/g, ''),
-        whatsappCountryCode: effectiveWhatsApp.countryCode,
-        whatsappNumber: effectiveWhatsApp.number,
+        ...(allowsMessaging && effectiveWhatsApp.number.length >= 6
+          ? {
+              whatsappCountryCode: effectiveWhatsApp.countryCode,
+              whatsappNumber: effectiveWhatsApp.number,
+            }
+          : {}),
         dob: values.dob.trim(),
         treatmentId: values.treatmentId,
         treatmentName,

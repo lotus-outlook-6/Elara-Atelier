@@ -98,22 +98,26 @@ export function buildTeamPatientAlertCard(
   text: string;
   reply_markup: { inline_keyboard: TelegramInlineButton[][] };
 } {
+  const allowsMessaging = booking.messagingConsent !== false;
   const wa = resolveBookingWhatsAppDisplay(booking);
-  const waUrl = wa.digits
-    ? buildTeamWhatsAppConfirmationUrl({
-        patientName: booking.fullName,
-        whatsappDigits: wa.digits,
-        treatmentName: booking.treatmentName,
-        preferredDateTime: booking.preferredDateTime,
-      })
-    : '';
+  const waUrl =
+    allowsMessaging && wa.digits
+      ? buildTeamWhatsAppConfirmationUrl({
+          patientName: booking.fullName,
+          whatsappDigits: wa.digits,
+          treatmentName: booking.treatmentName,
+          preferredDateTime: booking.preferredDateTime,
+        })
+      : '';
 
   const statusBadge =
     booking.status === 'confirmed'
       ? '✅ CONFIRMED'
       : booking.status === 'cancelled'
         ? '❌ CANCELLED'
-        : '⏳ AWAITING WHATSAPP CONFIRMATION';
+        : allowsMessaging
+          ? '⏳ AWAITING WHATSAPP CONFIRMATION'
+          : '📞 AWAITING PHONE CALL CONFIRMATION';
 
   const lines: string[] = [
     `<b>${escapeTelegramHtml(heading)}</b>`,
@@ -121,15 +125,21 @@ export function buildTeamPatientAlertCard(
     `<b>Patient:</b> ${escapeTelegramHtml(booking.fullName)}`,
     `<b>Treatment:</b> ${escapeTelegramHtml(booking.treatmentName)}`,
     `<b>Date &amp; Time:</b> ${escapeTelegramHtml(formatBotDateTime(booking.preferredDateTime))}`,
-    `<b>WhatsApp:</b> <code>${escapeTelegramHtml(wa.display)}</code>`,
-    `<b>Phone:</b> <code>${escapeTelegramHtml(`${booking.phoneCountryCode} ${booking.phoneNumber}`)}</code>`,
-    `<b>Telegram:</b> ${escapeTelegramHtml(booking.telegramValue || 'Same as phone')}`,
+    allowsMessaging
+      ? `<b>WhatsApp:</b> <code>${escapeTelegramHtml(wa.display)}</code>`
+      : `<b>Contact Rule:</b> Phone Call Only (No WhatsApp / Telegram consent)`,
+    `<b>Phone (Call):</b> <code>${escapeTelegramHtml(`${booking.phoneCountryCode} ${booking.phoneNumber}`)}</code>`,
+    ...(allowsMessaging
+      ? [`<b>Telegram:</b> ${escapeTelegramHtml(booking.telegramValue || 'Same as phone')}`]
+      : []),
     `<b>Status:</b> <b>${statusBadge}</b>`,
     `<b>Ref:</b> <code>${escapeTelegramHtml(booking.id)}</code>`,
   ];
 
   const handle =
-    booking.telegramMethod === 'username' ? normalizeTelegramHandle(booking.telegramValue) : '';
+    allowsMessaging && booking.telegramMethod === 'username'
+      ? normalizeTelegramHandle(booking.telegramValue)
+      : '';
 
   const inline_keyboard: TelegramInlineButton[][] = [];
   if (waUrl && booking.status !== 'cancelled') {

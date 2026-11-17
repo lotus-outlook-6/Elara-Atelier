@@ -13,7 +13,10 @@ import facialBalancingImg from '../assets/images/treatment_facial_balancing_1794
 import dentalVeneersImg from '../assets/images/treatment_dental_veneers_1794640184067.jpg';
 import smileScanImg from '../assets/images/treatment_smile_scan_1794640184709.jpg';
 import skinLongevityImg from '../assets/images/treatment_skin_longevity_1794640184889.jpg';
-import conciergeSuiteImg from '../assets/images/atelier_concierge_suite_1794640185192.jpg';
+import clinicExteriorImg from '../assets/images/elara_clinic_exterior_1794908741926.jpg';
+import testimonialSmileImg from '../assets/images/testimonial_smile_selfie_1794908523568.jpg';
+import testimonialJawlineImg from '../assets/images/testimonial_jawline_selfie_1794908524978.jpg';
+import testimonialSkinImg from '../assets/images/testimonial_skin_selfie_1794908526405.jpg';
 import cheekContouringServiceImg from '../assets/images/clinic_cheek_contouring_1794644487062.jpg';
 import wrinkleTreatmentServiceImg from '../assets/images/clinic_wrinkle_treatment_1794644487772.jpg';
 import teethWhiteningServiceImg from '../assets/images/dental_laser_whitening_1794644488609.jpg';
@@ -62,8 +65,9 @@ export interface MediaAsset {
 export const HERO_HEADING_TEXTURE = espressoTextureImg;
 
 export const CONCIERGE_SUITE_MEDIA: MediaAsset = {
-  src: conciergeSuiteImg,
-  alt: 'Elara Atelier sunlit stone lounge in Beverly Hills',
+  src: clinicExteriorImg,
+  alt: 'Elara Atelier limestone and bronze clinic storefront entrance in Beverly Hills',
+  objectPosition: 'object-center',
 };
 
 export const HERO_BOUNCE_CARDS: MediaAsset[] = [
@@ -145,18 +149,20 @@ export const TREATMENT_MEDIA: Record<string, MediaAsset> = {
 };
 
 export const TESTIMONIAL_MEDIA: Record<string, MediaAsset> = {
-  't-camille': {
-    src: dentalVeneersImg,
-    alt: 'Porcelain veneer shade tray prepared for smile restoration',
+  't-hannah': {
+    src: testimonialSmileImg,
+    alt: 'Natural daylight close-up smile photo of Hannah after porcelain veneer care',
+    objectPosition: 'object-[50%_22%]',
   },
-  't-julian': {
-    src: facialBalancingImg,
-    alt: 'Facial measuring tools inside a private consultation suite',
+  't-david': {
+    src: testimonialJawlineImg,
+    alt: 'Natural daylight portrait of David showing balanced jawline results',
+    objectPosition: 'object-[50%_22%]',
   },
-  't-elena': {
-    src: skinLaserFacialServiceImg,
-    alt: 'Gentle skin renewal treatment performed in a sunlit private suite',
-    objectPosition: 'object-[50%_25%]',
+  't-priya': {
+    src: testimonialSkinImg,
+    alt: 'Daylight close-up portrait of Priya showing brighter under-eye skin',
+    objectPosition: 'object-[50%_22%]',
   },
 };
 
