@@ -598,13 +598,12 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
                         htmlFor="booking-full-name"
                         className="mb-1.5 block text-xs font-semibold tracking-[0.14em] text-[#1F1B18] uppercase"
                       >
-                        Full Name (Letters Only)
+                        Full Name
                       </label>
                       <input
                         id="booking-full-name"
                         type="text"
                         autoComplete="name"
-                        placeholder="Hannah Abbott"
                         value={values.fullName}
                         onChange={e => {
                           const hadDigits = /[0-9]/.test(e.target.value);
@@ -655,7 +654,6 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
                           type="tel"
                           inputMode="numeric"
                           autoComplete="tel-national"
-                          placeholder="3105550148"
                           value={values.phoneNumber}
                           onChange={e =>
                             updateField('phoneNumber', sanitizePhoneDigits(e.target.value))
@@ -672,22 +670,21 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
                       ) : null}
 
                       {/* Single formal consent box: checked by default; ONLY clicking the checkbox input toggles it */}
-                      <div className="mt-3 flex items-start gap-3 rounded-xl border border-[#E2D9CE] bg-[#FAF7F2] px-3.5 py-3">
+                      <div className="mt-3 flex items-center gap-2.5 rounded-xl border border-[#E2D9CE] bg-[#FAF7F2] px-3 py-2.5">
                         <input
                           id="booking-messaging-consent"
                           type="checkbox"
                           checked={values.messagingConsent !== false}
                           onChange={e => handleMessagingConsentChange(e.target.checked)}
                           aria-label="Allow Elara Atelier to contact me via WhatsApp or Telegram at this number"
-                          className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer rounded border-[#E2D9CE] accent-[#1F1B18]"
+                          className="h-4 w-4 shrink-0 cursor-pointer rounded border-[#E2D9CE] accent-[#1F1B18]"
                         />
                         <span
                           data-testid="messaging-consent-text"
-                          className="text-xs leading-relaxed text-[#6E655F]"
+                          className="text-[11px] leading-normal text-[#6E655F] sm:whitespace-nowrap"
                         >
-                          I formally grant permission for Elara Atelier to contact me via WhatsApp or
-                          Telegram at this number regarding my visit updates and confirmation. If left
-                          unchecked, our team will contact you by phone call only.
+                          I formally grant permission for Elara Atelier WhatsApp or Telegram contact
+                          (else call only).
                         </span>
                       </div>
                     </div>
