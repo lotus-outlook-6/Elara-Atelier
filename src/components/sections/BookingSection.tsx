@@ -1,6 +1,6 @@
 /**
- * Appointment Booking, Messaging Consent, Clinic Storefront Photo & Map section.
- * Orders fields as Full Name -> Phone (For Call Purposes) -> Checkbox-only formal WhatsApp/Telegram consent ->
+ * Appointment Booking, WhatsApp Consent, Clinic Storefront Photo & Map section.
+ * Orders fields as Full Name -> Phone (For Call Purposes) -> Checkbox-only formal WhatsApp consent ->
  * Date of Birth (18+) -> Treatment Selection & Preferred Date/Time -> Slide to Confirm Appointment.
  * Places 4-Hour Edits, WhatsApp Confirmation & Adults 18+ in a separate card below shown only when signed in.
  */
@@ -14,7 +14,6 @@ import {
   MapPin,
   MessageCircle,
   Phone,
-  Send,
   User,
 } from 'lucide-react';
 import { CLINIC_CONFIG, COUNTRY_CODES } from '../../config/clinicConfig';
@@ -22,12 +21,11 @@ import { useAuth } from '../../context/AuthContext';
 import { TREATMENTS } from '../../data/clinicData';
 import { CONCIERGE_SUITE_MEDIA } from '../../data/clinicMedia';
 import {
-  buildTelegramBotDeepLink,
   buildWhatsAppBookingUrl,
   calculateAge,
   formatPreferredDateTime,
+  getDefaultUpcomingBookingDateTime,
   getTreatmentById,
-  resolveEffectiveTelegram,
   resolveEffectiveWhatsApp,
   sanitizeNameInput,
   sanitizePhoneDigits,
@@ -48,8 +46,6 @@ export interface BookingSectionProps {
   onOpenProfile: () => void;
 }
 
-const DEFAULT_DATETIME = '2026-11-18T11:00';
-
 /**
  * Appointment reservation and clinic location section.
  * Inputs: selectedTreatmentId, onSelectTreatment, onBookingConfirmed, onOpenAuth, onOpenProfile.
@@ -63,9 +59,9 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
   onOpenAuth,
   onOpenProfile,
 }) => {
-  const { user, profile, telegramStatus, createBookingRecord } = useAuth();
+  const { user, profile, createBookingRecord } = useAuth();
 
-  const [values, setValues] = useState<BookingFormValues>({
+  const [values, setValues] = useState<BookingFormValues>(() => ({
     fullName: '',
     phoneCountryCode: '+1',
     phoneNumber: '',
@@ -75,18 +71,14 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
     whatsappNumber: '',
     dob: '',
     treatmentId: selectedTreatmentId || TREATMENTS[0].id,
-    preferredDateTime: DEFAULT_DATETIME,
-    telegramSameAsPhone: true,
-    telegramMethod: 'phone',
-    telegramValue: '',
-  });
+    preferredDateTime: getDefaultUpcomingBookingDateTime(),
+  }));
   const [errors, setErrors] = useState<Partial<Record<keyof BookingFormValues, string>>>({});
   const [status, setStatus] = useState<'idle' | 'submitting' | 'confirmed'>('idle');
   const [confirmedDetails, setConfirmedDetails] = useState<BookingFormValues | null>(null);
   const [confirmedMeta, setConfirmedMeta] = useState<{
     bookingId?: string;
     savedToProfile: boolean;
-    telegramDeepLink: string;
     serverDispatched: boolean;
     status?: 'requested' | 'confirmed' | 'cancelled';
   } | null>(null);
@@ -199,9 +191,11 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
   };
 
   /**
-   * Toggle whether the patient grants permission to be contacted via WhatsApp or Telegram
+   * Toggle whether the patient grants permission to be contacted via WhatsApp
    * on their phone number; when unchecked, only phone calls are permitted.
    * Inputs: checked boolean from the checkbox input element.
+   * Output: void.
+   * Errors: None.
    */
   const handleMessagingConsentChange = (checked: boolean) => {
     setValues(prev => ({
@@ -210,16 +204,16 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
       whatsappSameAsPhone: checked,
       whatsappCountryCode: prev.phoneCountryCode,
       whatsappNumber: '',
-      telegramSameAsPhone: true,
-      telegramMethod: 'phone',
-      telegramValue: '',
     }));
-    setErrors(prev => ({ ...prev, whatsappNumber: undefined, telegramValue: undefined }));
+    setErrors(prev => ({ ...prev, whatsappNumber: undefined }));
   };
 
   /**
-   * Validate all fields (letters-only name, country code + phone, 18+ DOB, treatment, weekday slot)
+   * Validate all fields (letters-only name, country code + phone, 18+ DOB, treatment, upcoming weekday slot)
    * and persist to Firestore when signed in or submit to team notification API for guests.
+   * Inputs: none.
+   * Output: Promise<void>.
+   * Errors: Throws validation or persistence errors to reset the slider with inline feedback.
    */
   const handleSlideConfirm = async (): Promise<void> => {
     const validation = validateBookingForm(values);
@@ -234,13 +228,6 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
 
     const hasMessagingConsent = values.messagingConsent !== false;
     const chosenTreatment = getTreatmentById(values.treatmentId);
-    const effectiveTelegram = resolveEffectiveTelegram({
-      phoneCountryCode: values.phoneCountryCode,
-      phoneNumber: values.phoneNumber,
-      telegramSameAsPhone: true,
-      telegramMethod: 'phone',
-      telegramValue: '',
-    });
     const effectiveWhatsApp = hasMessagingConsent
       ? resolveEffectiveWhatsApp({
           phoneCountryCode: values.phoneCountryCode,
@@ -255,16 +242,9 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
       whatsappSameAsPhone: hasMessagingConsent,
       whatsappCountryCode: effectiveWhatsApp.countryCode,
       whatsappNumber: effectiveWhatsApp.number,
-      telegramSameAsPhone: true,
-      telegramMethod: effectiveTelegram.method,
-      telegramValue: effectiveTelegram.value,
     };
 
     let savedToProfile = false;
-    let telegramDeepLink = buildTelegramBotDeepLink(
-      telegramStatus.botUsername,
-      snapshot.treatmentId
-    );
     let serverDispatched = false;
     let confirmedBookingId = '';
 
@@ -273,7 +253,6 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
         const result = await createBookingRecord(snapshot);
         savedToProfile = true;
         confirmedBookingId = result.bookingId;
-        telegramDeepLink = result.telegramDeepLink;
         serverDispatched = result.serverDispatched;
       } catch (err) {
         setStatus('idle');
@@ -303,18 +282,15 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
             treatmentId: snapshot.treatmentId,
             treatmentName: chosenTreatment?.name || 'Private Consultation',
             preferredDateTime: snapshot.preferredDateTime,
-            telegramMethod: snapshot.telegramMethod,
-            telegramValue: snapshot.telegramValue,
             createdAtMs: Date.now(),
           }),
         });
         if (resp.ok) {
           const data = await resp.json();
-          if (data.deepLink) telegramDeepLink = data.deepLink;
-          serverDispatched = Boolean(data.sent);
+          serverDispatched = Boolean(data.teamNotified || data.sent);
         }
       } catch {
-        // Deep-link fallback stays ready
+        // WhatsApp direct link fallback stays ready
       }
     }
 
@@ -322,7 +298,6 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
     setConfirmedMeta({
       bookingId: confirmedBookingId,
       savedToProfile,
-      telegramDeepLink,
       serverDispatched,
     });
     setStatus('confirmed');
@@ -334,6 +309,9 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
 
   /**
    * Save a guest-confirmed booking into the user's Firestore Profile right after signing in.
+   * Inputs: none.
+   * Output: Promise<void>.
+   * Errors: Displays inline error message if Firestore write fails.
    */
   const handleSaveConfirmedToProfile = async () => {
     if (!confirmedDetails || !user) return;
@@ -344,7 +322,6 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
       setConfirmedMeta(prev => ({
         bookingId: result.bookingId,
         savedToProfile: true,
-        telegramDeepLink: result.telegramDeepLink,
         serverDispatched: result.serverDispatched,
         status: prev?.status,
       }));
@@ -460,17 +437,17 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
                             ? 'This visit has been cancelled.'
                             : confirmedMeta?.status === 'confirmed'
                               ? 'Our clinic team has confirmed your consultation.'
-                              : confirmedAllowsMessaging
-                                ? `Someone from our clinic team will confirm your visit via WhatsApp or Telegram (${confirmedDetails.phoneCountryCode} ${confirmedDetails.phoneNumber}) shortly.${
-                                    confirmedMeta?.savedToProfile
-                                      ? ' Saved to your Profile & Calendar for 4-hour self-editing.'
-                                      : ''
-                                  }`
-                                : `Our clinic team will confirm your visit by phone call at ${confirmedDetails.phoneCountryCode} ${confirmedDetails.phoneNumber}.${
-                                    confirmedMeta?.savedToProfile
-                                      ? ' Saved to your Profile & Calendar for 4-hour self-editing.'
-                                      : ''
-                                  }`}
+                                : confirmedAllowsMessaging
+                                  ? `Someone from our clinic team will confirm your visit via WhatsApp (${confirmedDetails.phoneCountryCode} ${confirmedDetails.phoneNumber}) shortly.${
+                                      confirmedMeta?.savedToProfile
+                                        ? ' Saved to your Profile & Calendar for 4-hour self-editing.'
+                                        : ''
+                                    }`
+                                  : `Our clinic team will confirm your visit by phone call at ${confirmedDetails.phoneCountryCode} ${confirmedDetails.phoneNumber}.${
+                                      confirmedMeta?.savedToProfile
+                                        ? ' Saved to your Profile & Calendar for 4-hour self-editing.'
+                                        : ''
+                                    }`}
                         </p>
                       </div>
                     </div>
@@ -490,7 +467,7 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
                         <dt className="text-[#6E655F]">Contact Preference</dt>
                         <dd className="font-semibold text-[#4B6B50]">
                           {confirmedAllowsMessaging
-                            ? 'WhatsApp / Telegram & Call Permitted'
+                            ? 'WhatsApp & Phone Call Permitted'
                             : 'Phone Call Only'}
                         </dd>
                       </div>
@@ -517,27 +494,15 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
 
                   <div className="flex flex-wrap items-center gap-3.5">
                     {confirmedAllowsMessaging ? (
-                      <>
-                        <a
-                          href={confirmedMeta?.telegramDeepLink}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-[10px] border border-[#1F1B18] bg-[#1F1B18] px-5 text-sm font-medium text-[#FAF7F2] no-underline transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-[#352F2B] active:scale-[0.99] sm:w-auto"
-                        >
-                          <Send className="h-4 w-4 text-[#B68D5E]" aria-hidden="true" />
-                          Open Telegram Bot (@{telegramStatus.botUsername})
-                        </a>
-
-                        <a
-                          href={whatsappUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-[10px] border border-[#E2D9CE] bg-[#FAF7F2] px-5 text-sm font-medium text-[#1F1B18] no-underline transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] hover:border-[#B68D5E] hover:bg-[#E5DACB]/40 active:scale-[0.99] sm:w-auto"
-                        >
-                          <MessageCircle className="h-4 w-4 text-[#B68D5E]" aria-hidden="true" />
-                          Send via WhatsApp
-                        </a>
-                      </>
+                      <a
+                        href={whatsappUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-[10px] border border-[#1F1B18] bg-[#1F1B18] px-5 text-sm font-medium text-[#FAF7F2] no-underline transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-[#352F2B] active:scale-[0.99] sm:w-auto"
+                      >
+                        <MessageCircle className="h-4 w-4 text-[#B68D5E]" aria-hidden="true" />
+                        Send via WhatsApp
+                      </a>
                     ) : null}
 
                     {confirmedMeta?.savedToProfile ? (
@@ -604,6 +569,7 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
                         id="booking-full-name"
                         type="text"
                         autoComplete="name"
+                        placeholder="Enter your full name"
                         value={values.fullName}
                         onChange={e => {
                           const hadDigits = /[0-9]/.test(e.target.value);
@@ -616,7 +582,7 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
                           }
                         }}
                         aria-invalid={Boolean(errors.fullName)}
-                        className="h-11 w-full rounded-[10px] border border-[#E2D9CE] bg-[#FAF7F2] px-3.5 text-sm text-[#1F1B18] placeholder-[#6E655F]/60 outline-none transition-colors focus:border-[#B68D5E]"
+                        className="h-11 w-full rounded-[10px] border border-[#E2D9CE] bg-[#FAF7F2] px-3.5 text-sm text-[#1F1B18] placeholder:text-[#9A9086] outline-none transition-colors focus:border-[#B68D5E]"
                       />
                       {errors.fullName ? (
                         <p className="mt-1.5 text-xs text-[#9E3B33]" role="alert">
@@ -654,12 +620,13 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
                           type="tel"
                           inputMode="numeric"
                           autoComplete="tel-national"
+                          placeholder="Enter phone number"
                           value={values.phoneNumber}
                           onChange={e =>
                             updateField('phoneNumber', sanitizePhoneDigits(e.target.value))
                           }
                           aria-invalid={Boolean(errors.phoneNumber)}
-                          className="h-11 w-full rounded-[10px] border border-[#E2D9CE] bg-[#FAF7F2] px-3.5 text-sm text-[#1F1B18] placeholder-[#6E655F]/60 tabular-nums outline-none transition-colors focus:border-[#B68D5E]"
+                          className="h-11 w-full rounded-[10px] border border-[#E2D9CE] bg-[#FAF7F2] px-3.5 text-sm text-[#1F1B18] placeholder:text-[#9A9086] tabular-nums outline-none transition-colors focus:border-[#B68D5E]"
                         />
                       </div>
 
@@ -676,14 +643,14 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
                           type="checkbox"
                           checked={values.messagingConsent !== false}
                           onChange={e => handleMessagingConsentChange(e.target.checked)}
-                          aria-label="Allow Elara Atelier to contact me via WhatsApp or Telegram at this number"
+                          aria-label="Allow Elara Atelier to contact me via WhatsApp at this number"
                           className="h-4 w-4 shrink-0 cursor-pointer rounded border-[#E2D9CE] accent-[#1F1B18]"
                         />
                         <span
                           data-testid="messaging-consent-text"
                           className="text-[11px] leading-normal text-[#6E655F] sm:whitespace-nowrap"
                         >
-                          I formally grant permission for Elara Atelier WhatsApp or Telegram contact
+                          I formally grant permission for Elara Atelier to contact me via WhatsApp
                           (else call only).
                         </span>
                       </div>

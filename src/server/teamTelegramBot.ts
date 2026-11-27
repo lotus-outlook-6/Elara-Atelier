@@ -1,16 +1,15 @@
 /**
  * Dedicated Doctors & Clinical Team Telegram Bot handler for Elara Atelier.
- * Receives individual notifications for every patient booking with a 1-click customized
- * WhatsApp confirmation link pre-filled with the patient's treatment, date, and time,
- * supports instant team confirm/cancel status updates synced back to the patient & website,
- * and delivers the end-of-day Next-Day Patient Schedule PDF via Telegram sendDocument.
+ * Receives individual notifications once when a patient booking is submitted (with a 1-click customized
+ * WhatsApp confirmation link pre-filled with the patient's treatment, date, and time),
+ * supports instant team confirm/cancel status updates synced back to the website,
+ * and delivers a morning list of all scheduled bookings ONLY on days with at least 1 booking.
  */
 
 import { CLINIC_CONFIG } from '../config/clinicConfig';
 import { buildTeamWhatsAppConfirmationUrl } from '../utils/booking';
 import {
   ConciergeStore,
-  normalizeTelegramHandle,
   type ConciergeBookingRecord,
 } from './conciergeStore';
 import {
@@ -127,19 +126,11 @@ export function buildTeamPatientAlertCard(
     `<b>Date &amp; Time:</b> ${escapeTelegramHtml(formatBotDateTime(booking.preferredDateTime))}`,
     allowsMessaging
       ? `<b>WhatsApp:</b> <code>${escapeTelegramHtml(wa.display)}</code>`
-      : `<b>Contact Rule:</b> Phone Call Only (No WhatsApp / Telegram consent)`,
+      : `<b>Contact Rule:</b> Phone Call Only (No WhatsApp consent)`,
     `<b>Phone (Call):</b> <code>${escapeTelegramHtml(`${booking.phoneCountryCode} ${booking.phoneNumber}`)}</code>`,
-    ...(allowsMessaging
-      ? [`<b>Telegram:</b> ${escapeTelegramHtml(booking.telegramValue || 'Same as phone')}`]
-      : []),
     `<b>Status:</b> <b>${statusBadge}</b>`,
     `<b>Ref:</b> <code>${escapeTelegramHtml(booking.id)}</code>`,
   ];
-
-  const handle =
-    allowsMessaging && booking.telegramMethod === 'username'
-      ? normalizeTelegramHandle(booking.telegramValue)
-      : '';
 
   const inline_keyboard: TelegramInlineButton[][] = [];
   if (waUrl && booking.status !== 'cancelled') {
@@ -147,14 +138,6 @@ export function buildTeamPatientAlertCard(
       {
         text: '💬 Confirm on WhatsApp (1-Click)',
         url: waUrl,
-      },
-    ]);
-  }
-  if (handle && booking.status !== 'cancelled') {
-    inline_keyboard.push([
-      {
-        text: `✈️ Message @${handle} on Telegram`,
-        url: `https://t.me/${handle}`,
       },
     ]);
   }
@@ -167,12 +150,12 @@ export function buildTeamPatientAlertCard(
   } else if (booking.status === 'confirmed') {
     inline_keyboard.push([
       { text: '❌ Cancel Visit', callback_data: `team:cancel:${booking.id}` },
-      { text: '📄 Tomorrow PDF', callback_data: 'team:pdf:tomorrow' },
+      { text: '📄 Today PDF', callback_data: 'team:pdf:today' },
     ]);
   }
 
   if (booking.status !== 'confirmed') {
-    inline_keyboard.push([{ text: '📄 Send Tomorrow PDF', callback_data: 'team:pdf:tomorrow' }]);
+    inline_keyboard.push([{ text: '📄 Send Today PDF', callback_data: 'team:pdf:today' }]);
   }
 
   return {
@@ -391,8 +374,8 @@ export function processTeamBotUpdate(
           `<b>ELARA ATELIER · DOCTORS &amp; TEAM CONSOLE</b>`,
           ``,
           `This chat is now subscribed to receive:`,
-          `• <b>Individual patient alerts</b> with a <b>1-click WhatsApp confirmation link</b> pre-filled with treatment, date &amp; time`,
-          `• <b>End-of-day Next-Day Patient Roster PDF</b> sent daily at 7:15 PM PT`,
+          `• <b>Instant booking alert</b> once when each patient books (with a <b>1-click WhatsApp confirmation link</b>)`,
+          `• <b>Morning booking list</b> at 8:30 AM PT (sent only when there is at least 1 booking scheduled)`,
           ``,
           `<b>Pending Confirmations:</b> ${pendingCount}`,
           `<b>Next Open Day (${escapeTelegramHtml(nextDay.targetIsoDate)}):</b> ${tomorrowCount} patient${tomorrowCount === 1 ? '' : 's'}`,
@@ -620,6 +603,184 @@ export async function dispatchNextDaySchedulePdf(params: {
     patientCount: dayBookings.length,
     targetIsoDate,
     filename,
+  };
+}
+
+/**
+ * Format an ISO YYYY-MM-DD date string into a readable morning schedule heading.
+ * Inputs: isoDate string ('YYYY-MM-DD').
+ * Output: readable date label (e.g. 'Friday, Nov 27, 2026').
+ * Errors: None.
+ */
+function formatIsoDateHeading(isoDate: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate.trim());
+  if (!match) return isoDate;
+  const dt = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12, 0, 0));
+  if (Number.isNaN(dt.getTime())) return isoDate;
+  return dt.toLocaleDateString('en-US', {
+    timeZone: 'UTC',
+    weekday: 'long',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+}
+
+/**
+ * Extract readable 12-hour visit time (e.g. '11:00 AM') from YYYY-MM-DDTHH:mm.
+ * Inputs: preferredDateTime string.
+ * Output: formatted time string.
+ * Errors: None.
+ */
+function formatVisitTimeShort(preferredDateTime: string): string {
+  const match = /T(\d{2}):(\d{2})/.exec(preferredDateTime);
+  if (!match) return preferredDateTime;
+  const rawHour = Number(match[1]);
+  const minute = match[2];
+  const suffix = rawHour >= 12 ? 'PM' : 'AM';
+  const hour12 = rawHour % 12 === 0 ? 12 : rawHour % 12;
+  return `${hour12}:${minute} ${suffix}`;
+}
+
+/**
+ * Build a single formatted HTML morning list of all active bookings scheduled for a day.
+ * Inputs: targetIsoDate, displayDateLabel, bookings array (already filtered and sorted).
+ * Output: Telegram HTML message string listing every booking with time, patient, treatment, phone/WhatsApp, and status.
+ * Errors: None.
+ */
+export function buildMorningBookingsListMessage(params: {
+  targetIsoDate: string;
+  displayDateLabel: string;
+  bookings: ConciergeBookingRecord[];
+}): string {
+  const lines: string[] = [
+    `<b>ELARA ATELIER · MORNING BOOKING LIST</b>`,
+    `<b>Date:</b> ${escapeTelegramHtml(params.displayDateLabel)}`,
+    `<b>Total Bookings:</b> ${params.bookings.length}`,
+    ``,
+  ];
+
+  params.bookings.forEach((booking, idx) => {
+    const timeLabel = formatVisitTimeShort(booking.preferredDateTime);
+    const allowsMessaging = booking.messagingConsent !== false;
+    const phoneDisplay = `${booking.phoneCountryCode} ${booking.phoneNumber}`.trim();
+    const wa = resolveBookingWhatsAppDisplay(booking);
+    const contactNote = allowsMessaging
+      ? `WhatsApp / Phone: <code>${escapeTelegramHtml(wa.display || phoneDisplay)}</code>`
+      : `Phone Call Only: <code>${escapeTelegramHtml(phoneDisplay)}</code>`;
+    const statusLabel =
+      booking.status === 'confirmed'
+        ? 'Confirmed'
+        : allowsMessaging
+          ? 'Pending WhatsApp'
+          : 'Pending Call';
+
+    lines.push(
+      `<b>${idx + 1}. ${escapeTelegramHtml(timeLabel)} — ${escapeTelegramHtml(booking.fullName)}</b>`,
+      `   • ${escapeTelegramHtml(booking.treatmentName)}`,
+      `   • ${contactNote} · <i>${escapeTelegramHtml(statusLabel)}</i>`
+    );
+  });
+
+  return lines.join('\n');
+}
+
+/**
+ * Send a plain HTML message to a Telegram chat via Bot API sendMessage.
+ * Inputs: botToken, chatId, HTML text, optional reply_markup.
+ * Output: boolean true if Telegram accepted the message.
+ * Errors: Catches network errors and returns false.
+ */
+export async function sendTelegramHtmlMessage(
+  botToken: string,
+  chatId: string,
+  text: string,
+  reply_markup?: unknown
+): Promise<boolean> {
+  if (!botToken || !chatId) return false;
+  try {
+    const resp = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text,
+        parse_mode: 'HTML',
+        reply_markup,
+      }),
+    });
+    return resp.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Dispatch the morning list of all active bookings for today (or a specified date) to Team Bot chats.
+ * STRICT ZERO-BOOKING RULE: When there are 0 active bookings for the date, sends NO Telegram messages at all.
+ * Inputs: store, teamBotToken, targetChatIds, optional targetIsoDate/displayDateLabel/nowMs/sendMessageFn.
+ * Output: summary object with ok, skipped, reason, sentCount, patientCount, and targetIsoDate.
+ * Errors: None (returns skipped/sent counts cleanly).
+ */
+export async function dispatchMorningBookingsDigest(params: {
+  store: ConciergeStore;
+  teamBotToken: string;
+  targetChatIds: string[];
+  targetIsoDate?: string;
+  displayDateLabel?: string;
+  nowMs?: number;
+  sendMessageFn?: (
+    botToken: string,
+    chatId: string,
+    text: string,
+    reply_markup?: unknown
+  ) => Promise<boolean>;
+}): Promise<{
+  ok: boolean;
+  skipped: boolean;
+  reason?: string;
+  sentCount: number;
+  patientCount: number;
+  targetIsoDate: string;
+}> {
+  const now = new Date(params.nowMs ?? Date.now());
+  const localNow = getClinicDateTimeParts(now, CLINIC_CONFIG.clinicTimeZone);
+  const targetIsoDate = params.targetIsoDate || localNow.isoDate;
+  const displayDateLabel = params.displayDateLabel || formatIsoDateHeading(targetIsoDate);
+  const dayBookings = params.store.getBookingsForDate(targetIsoDate);
+
+  // Never send a morning message when there are 0 bookings
+  if (dayBookings.length === 0) {
+    return {
+      ok: true,
+      skipped: true,
+      reason: 'no_bookings',
+      sentCount: 0,
+      patientCount: 0,
+      targetIsoDate,
+    };
+  }
+
+  const text = buildMorningBookingsListMessage({
+    targetIsoDate,
+    displayDateLabel,
+    bookings: dayBookings,
+  });
+  const replyMarkup = buildTeamMainMenuKeyboard();
+  const sender = params.sendMessageFn || sendTelegramHtmlMessage;
+
+  let sentCount = 0;
+  for (const chatId of params.targetChatIds) {
+    const sent = await sender(params.teamBotToken, chatId, text, replyMarkup);
+    if (sent) sentCount += 1;
+  }
+
+  return {
+    ok: sentCount > 0,
+    skipped: false,
+    sentCount,
+    patientCount: dayBookings.length,
+    targetIsoDate,
   };
 }
 

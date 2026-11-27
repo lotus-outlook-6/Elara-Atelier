@@ -17,8 +17,11 @@ import {
   clampComparisonPercentage,
   filterTreatmentsByCategory,
   getComparisonCaseForTreatment,
+  getDefaultUpcomingBookingDateTime,
   getRemainingEditWindow,
+  getTodayIsoDate,
   getTreatmentById,
+  isPastCalendarDate,
   isStudioWeekday,
   resolveEffectiveTelegram,
   resolveEffectiveWhatsApp,
@@ -109,8 +112,8 @@ test('validateTelegramContact validates both @username and +country phone format
   assert.ok(validateTelegramContact('phone', '123'));
 });
 
-test('validateBookingForm rejects invalid fields and underage DOB', () => {
-  const refDate = new Date(2026, 10, 14);
+test('validateBookingForm rejects invalid fields, underage DOB, weekend, and past dates', () => {
+  const refDate = new Date(2026, 10, 14); // Sat Nov 14, 2026
   const invalid = validateBookingForm(
     {
       fullName: 'Julian 99',
@@ -119,8 +122,6 @@ test('validateBookingForm rejects invalid fields and underage DOB', () => {
       dob: '2012-05-01',
       treatmentId: '',
       preferredDateTime: '',
-      telegramMethod: 'username',
-      telegramValue: 'ab',
     },
     refDate
   );
@@ -130,7 +131,7 @@ test('validateBookingForm rejects invalid fields and underage DOB', () => {
   assert.ok(invalid.errors.dob);
   assert.ok(invalid.errors.treatmentId);
   assert.ok(invalid.errors.preferredDateTime);
-  assert.ok(invalid.errors.telegramValue);
+  assert.equal(invalid.errors.telegramValue, undefined);
 
   const weekendBooking = validateBookingForm(
     {
@@ -140,13 +141,25 @@ test('validateBookingForm rejects invalid fields and underage DOB', () => {
       dob: '1994-03-19',
       treatmentId: 'cd-veneers',
       preferredDateTime: '2026-11-21T11:00', // Saturday
-      telegramMethod: 'username',
-      telegramValue: '@camille_laurent',
     },
     refDate
   );
   assert.equal(weekendBooking.valid, false);
   assert.match(weekendBooking.errors.preferredDateTime || '', /Monday\s*[–-]\s*Friday/i);
+
+  const pastWeekdayBooking = validateBookingForm(
+    {
+      fullName: 'Camille Laurent',
+      phoneCountryCode: '+1',
+      phoneNumber: '3105550142',
+      dob: '1994-03-19',
+      treatmentId: 'cd-veneers',
+      preferredDateTime: '2026-11-13T11:00', // Yesterday (Friday)
+    },
+    refDate
+  );
+  assert.equal(pastWeekdayBooking.valid, false);
+  assert.match(pastWeekdayBooking.errors.preferredDateTime || '', /Past dates cannot be booked/i);
 });
 
 test('validateBookingForm and validateAccountForm accept valid adult payloads', () => {
@@ -184,38 +197,38 @@ test('validateBookingForm and validateAccountForm accept valid adult payloads', 
   assert.equal(validAccount.valid, true);
 });
 
-test('telegramSameAsPhone makes Telegram username optional and resolves cleanly', () => {
-  const refDate = new Date(2026, 10, 14);
+test('phone-only booking and account forms never trigger Telegram errors and derive phone contact cleanly', () => {
+  const refDate = new Date(2026, 10, 25); // Wed Nov 25, 2026
 
-  // 1. Blank optional username succeeds when marked same as phone
-  const noHandleBooking = validateBookingForm(
+  // Signed-in patient payload (including legacy telegram fields) passes cleanly without Telegram username error
+  const signedInBooking = validateBookingForm(
     {
-      fullName: 'Camille Laurent',
+      fullName: 'Sphinx Cipher',
       phoneCountryCode: '+1',
-      phoneNumber: '3105550142',
-      dob: '1994-03-19',
-      treatmentId: 'cd-veneers',
-      preferredDateTime: '2026-11-20T14:30',
+      phoneNumber: '123456789',
+      messagingConsent: true,
+      dob: '2002-11-14',
+      treatmentId: 'fa-contour',
+      preferredDateTime: '2026-11-25T11:00',
       telegramSameAsPhone: true,
-      telegramMethod: 'phone',
-      telegramValue: '',
+      telegramMethod: 'username',
+      telegramValue: '+1123456789',
     },
     refDate
   );
-  assert.equal(noHandleBooking.valid, true);
+  assert.equal(signedInBooking.valid, true);
+  assert.deepEqual(signedInBooking.errors, {});
+
   assert.deepEqual(
     resolveEffectiveTelegram({
       phoneCountryCode: '+1',
       phoneNumber: '3105550142',
-      telegramSameAsPhone: true,
-      telegramMethod: 'phone',
-      telegramValue: '',
     }),
     { method: 'phone', value: '+13105550142' }
   );
 
-  // 2. Provided optional @username succeeds and takes priority as handle
-  const withHandleAccount = validateAccountForm(
+  // Account creation without any Telegram fields succeeds cleanly
+  const phoneOnlyAccount = validateAccountForm(
     {
       fullName: 'Camille Laurent',
       email: 'camille@example.com',
@@ -223,42 +236,37 @@ test('telegramSameAsPhone makes Telegram username optional and resolves cleanly'
       phoneCountryCode: '+1',
       phoneNumber: '3105550142',
       dob: '1994-03-19',
-      telegramSameAsPhone: true,
-      telegramMethod: 'username',
-      telegramValue: 'camille_laurent',
     },
     true,
     refDate
   );
-  assert.equal(withHandleAccount.valid, true);
-  assert.deepEqual(
-    resolveEffectiveTelegram({
-      phoneCountryCode: '+1',
-      phoneNumber: '3105550142',
-      telegramSameAsPhone: true,
-      telegramMethod: 'username',
-      telegramValue: 'camille_laurent',
-    }),
-    { method: 'username', value: '@camille_laurent' }
-  );
+  assert.equal(phoneOnlyAccount.valid, true);
+  assert.deepEqual(phoneOnlyAccount.errors, {});
+});
 
-  // 3. Invalid optional username still reports formatting feedback
-  const badHandleBooking = validateBookingForm(
-    {
-      fullName: 'Camille Laurent',
-      phoneCountryCode: '+1',
-      phoneNumber: '3105550142',
-      dob: '1994-03-19',
-      treatmentId: 'cd-veneers',
-      preferredDateTime: '2026-11-20T14:30',
-      telegramSameAsPhone: true,
-      telegramMethod: 'username',
-      telegramValue: '@ab',
-    },
-    refDate
+test('past-date helpers and default upcoming booking datetime never return a past day', () => {
+  const friday = new Date(2026, 10, 27); // Fri Nov 27, 2026
+  const saturday = new Date(2026, 10, 28); // Sat Nov 28, 2026
+  const sunday = new Date(2026, 10, 29); // Sun Nov 29, 2026
+
+  assert.equal(getTodayIsoDate(friday), '2026-11-27');
+  assert.equal(isPastCalendarDate('2026-11-26T11:00', friday), true);
+  assert.equal(isPastCalendarDate('2026-11-27T11:00', friday), false);
+  assert.equal(isPastCalendarDate('2026-11-30T11:00', friday), false);
+
+  assert.equal(getDefaultUpcomingBookingDateTime(friday), '2026-11-27T11:00');
+  assert.equal(getDefaultUpcomingBookingDateTime(saturday), '2026-11-30T11:00');
+  assert.equal(getDefaultUpcomingBookingDateTime(sunday), '2026-11-30T11:00');
+
+  // resolveNextOpenStudioIsoDate must never fall back to a past day in the same month
+  assert.equal(
+    resolveNextOpenStudioIsoDate('2026-11-18', 2026, 10, friday),
+    '2026-11-27'
   );
-  assert.equal(badHandleBooking.valid, false);
-  assert.ok(badHandleBooking.errors.telegramValue);
+  assert.equal(
+    resolveNextOpenStudioIsoDate('2026-11-28', 2026, 10, saturday),
+    '2026-11-30'
+  );
 });
 
 test('canEditBooking and getRemainingEditWindow enforce 4-hour post-booking limit', () => {
@@ -318,7 +326,7 @@ test('buildWhatsAppBookingUrl and buildTelegramBotDeepLink format concierge link
   assert.ok(url.startsWith('https://wa.me/13105550194?text='));
   const decoded = decodeURIComponent(url.split('?text=')[1]);
   assert.match(decoded, /Elena Vance/);
-  assert.match(decoded, /@elena_vance/);
+  assert.doesNotMatch(decoded, /Telegram:/i);
   assert.match(decoded, /\+1 3105550188/);
 
   const tgUrl = buildTelegramBotDeepLink('@ElaraAtelierBot', 'visit_123');
@@ -368,25 +376,20 @@ test('resolveEffectiveWhatsApp and separate WhatsApp validation behave accuratel
     display: '+44 7700900123',
   });
 
-  const invalidSeparate = validateBookingForm(
+  // Phone number is now the single WhatsApp & call number, so separate whatsappNumber is ignored
+  const phoneOnlyValid = validateBookingForm(
     {
       fullName: 'Camille Laurent',
       phoneCountryCode: '+1',
       phoneNumber: '3105550148',
-      whatsappSameAsPhone: false,
-      whatsappCountryCode: '+44',
-      whatsappNumber: '12',
+      messagingConsent: true,
       dob: '1994-03-19',
       treatmentId: 'cd-veneers',
       preferredDateTime: '2026-11-20T14:30',
-      telegramSameAsPhone: true,
-      telegramMethod: 'phone',
-      telegramValue: '',
     },
     refDate
   );
-  assert.equal(invalidSeparate.valid, false);
-  assert.ok(invalidSeparate.errors.whatsappNumber);
+  assert.equal(phoneOnlyValid.valid, true);
 });
 
 test('clampComparisonPercentage clamps safely between 5 and 95', () => {

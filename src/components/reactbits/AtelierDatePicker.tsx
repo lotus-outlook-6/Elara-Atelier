@@ -11,6 +11,8 @@ import { CLINIC_CONFIG } from '../../config/clinicConfig';
 import {
   buildCalendarMonthGrid,
   formatPreferredDateTime,
+  getTodayIsoDate,
+  isPastCalendarDate,
   isStudioWeekday,
   resolveNextOpenStudioIsoDate,
 } from '../../utils/booking';
@@ -118,7 +120,11 @@ export const AtelierDatePicker: React.FC<AtelierDatePickerProps> = ({
   surfaceColor = '#FAF7F2',
   className = '',
 }) => {
-  const currentYear = new Date().getFullYear();
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth();
+  const todayIso = getTodayIsoDate(now);
+  const effectiveMinYear = mode === 'datetime' ? Math.max(minYear, currentYear) : minYear;
   const effectiveMaxYear = maxYear ?? (mode === 'date' ? currentYear : currentYear + 2);
   const fallbackYear = defaultOpenYear ?? (mode === 'date' ? 1995 : currentYear);
 
@@ -127,9 +133,15 @@ export const AtelierDatePicker: React.FC<AtelierDatePickerProps> = ({
   const [open, setOpen] = useState(false);
   const [placement, setPlacement] = useState<'bottom' | 'top'>('bottom');
   const [popoverMaxHeight, setPopoverMaxHeight] = useState<number>(440);
-  const [cursor, setCursor] = useState<{ year: number; month: number }>({
-    year: parsed.year,
-    month: parsed.monthIndex,
+  const [cursor, setCursor] = useState<{ year: number; month: number }>(() => {
+    if (
+      mode === 'datetime' &&
+      (parsed.year < currentYear ||
+        (parsed.year === currentYear && parsed.monthIndex < currentMonth))
+    ) {
+      return { year: currentYear, month: currentMonth };
+    }
+    return { year: parsed.year, month: parsed.monthIndex };
   });
 
   const rootRef = useRef<HTMLDivElement>(null);
@@ -137,9 +149,17 @@ export const AtelierDatePicker: React.FC<AtelierDatePickerProps> = ({
   // Keep calendar cursor synced when an external value (e.g. profile pre-fill) changes
   useEffect(() => {
     if (parsed.isoDate) {
+      if (
+        mode === 'datetime' &&
+        (parsed.year < currentYear ||
+          (parsed.year === currentYear && parsed.monthIndex < currentMonth))
+      ) {
+        setCursor({ year: currentYear, month: currentMonth });
+        return;
+      }
       setCursor({ year: parsed.year, month: parsed.monthIndex });
     }
-  }, [parsed.isoDate, parsed.year, parsed.monthIndex]);
+  }, [parsed.isoDate, parsed.year, parsed.monthIndex, mode, currentYear, currentMonth]);
 
   useLayoutEffect(() => {
     if (!open) return undefined;
@@ -194,11 +214,22 @@ export const AtelierDatePicker: React.FC<AtelierDatePickerProps> = ({
 
   const yearOptions: GlideSelectOption[] = useMemo(() => {
     const years: GlideSelectOption[] = [];
-    for (let y = effectiveMaxYear; y >= minYear; y -= 1) {
+    for (let y = effectiveMaxYear; y >= effectiveMinYear; y -= 1) {
       years.push({ value: String(y), label: String(y) });
     }
     return years;
-  }, [minYear, effectiveMaxYear]);
+  }, [effectiveMinYear, effectiveMaxYear]);
+
+  const monthOptions: GlideSelectOption[] = useMemo(() => {
+    if (mode === 'datetime' && cursor.year === currentYear) {
+      return MONTH_OPTIONS.filter(opt => Number(opt.value) >= currentMonth);
+    }
+    return MONTH_OPTIONS;
+  }, [mode, cursor.year, currentYear, currentMonth]);
+
+  const isAtMinMonth =
+    mode === 'datetime' &&
+    (cursor.year < currentYear || (cursor.year === currentYear && cursor.month <= currentMonth));
 
   const grid = useMemo(
     () => buildCalendarMonthGrid(cursor.year, cursor.month),
@@ -207,19 +238,31 @@ export const AtelierDatePicker: React.FC<AtelierDatePickerProps> = ({
 
   /**
    * Move the calendar month forward or backward by delta months.
+   * Prevents navigating before the current month in booking datetime mode.
    * Inputs: delta (-1 or +1).
+   * Output: void.
+   * Errors: None.
    */
   const shiftMonth = (delta: number) => {
     setCursor(prev => {
       const next = new Date(prev.year, prev.month + delta, 1);
-      const boundedYear = Math.min(effectiveMaxYear, Math.max(minYear, next.getFullYear()));
+      if (
+        mode === 'datetime' &&
+        (next.getFullYear() < currentYear ||
+          (next.getFullYear() === currentYear && next.getMonth() < currentMonth))
+      ) {
+        return { year: currentYear, month: currentMonth };
+      }
+      const boundedYear = Math.min(effectiveMaxYear, Math.max(effectiveMinYear, next.getFullYear()));
       return { year: boundedYear, month: next.getMonth() };
     });
   };
 
   /**
    * Handle picking a date cell inside the calendar grid.
-   * Inputs: isoDate string (YYYY-MM-DD), disabled flag for closed Sat/Sun in booking mode.
+   * Inputs: isoDate string (YYYY-MM-DD), disabled flag for closed Sat/Sun or past dates in booking mode.
+   * Output: void.
+   * Errors: None.
    */
   const handleSelectDay = (isoDate: string, isDisabledDay: boolean) => {
     if (isDisabledDay) return;
@@ -233,15 +276,19 @@ export const AtelierDatePicker: React.FC<AtelierDatePickerProps> = ({
   };
 
   /**
-   * Handle clicking a clinic time slot in datetime mode, ensuring date lands on Mon–Fri.
+   * Handle clicking a clinic time slot in datetime mode, ensuring date lands on today or an upcoming Mon–Fri.
    * Inputs: HH:mm string.
+   * Output: void.
+   * Errors: None.
    */
   const handleSelectTime = (timeSlot: string) => {
-    const safeIso = resolveNextOpenStudioIsoDate(
-      parsed.isoDate && isStudioWeekday(parsed.isoDate) ? parsed.isoDate : '',
-      cursor.year,
-      cursor.month
-    );
+    const candidateIso =
+      parsed.isoDate &&
+      isStudioWeekday(parsed.isoDate) &&
+      !isPastCalendarDate(parsed.isoDate)
+        ? parsed.isoDate
+        : '';
+    const safeIso = resolveNextOpenStudioIsoDate(candidateIso, cursor.year, cursor.month);
     onChange(`${safeIso}T${timeSlot}`);
     setOpen(false);
   };
@@ -318,16 +365,21 @@ export const AtelierDatePicker: React.FC<AtelierDatePickerProps> = ({
             <div className="flex items-center justify-between gap-1.5 border-b border-[#E2D9CE] pb-2.5">
               <button
                 type="button"
+                disabled={isAtMinMonth}
                 onClick={() => shiftMonth(-1)}
                 aria-label="Previous calendar month"
-                className="inline-flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-[#E2D9CE] bg-[#EFE9E0] text-[#1F1B18] transition-colors hover:border-[#B68D5E]"
+                className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[#E2D9CE] bg-[#EFE9E0] text-[#1F1B18] transition-colors ${
+                  isAtMinMonth
+                    ? 'cursor-not-allowed opacity-35'
+                    : 'cursor-pointer hover:border-[#B68D5E]'
+                }`}
               >
                 <ChevronLeft className="h-3.5 w-3.5" />
               </button>
 
               <div className="flex min-w-0 flex-1 items-center justify-center gap-1.5">
                 <GlideSelect
-                  options={MONTH_OPTIONS}
+                  options={monthOptions}
                   value={String(cursor.month)}
                   onChange={val => setCursor(prev => ({ ...prev, month: Number(val) }))}
                   showTags={false}
@@ -344,7 +396,16 @@ export const AtelierDatePicker: React.FC<AtelierDatePickerProps> = ({
                 <GlideSelect
                   options={yearOptions}
                   value={String(cursor.year)}
-                  onChange={val => setCursor(prev => ({ ...prev, year: Number(val) }))}
+                  onChange={val => {
+                    const nextYear = Number(val);
+                    setCursor(prev => ({
+                      year: nextYear,
+                      month:
+                        mode === 'datetime' && nextYear === currentYear
+                          ? Math.max(prev.month, currentMonth)
+                          : prev.month,
+                    }));
+                  }}
                   showTags={false}
                   size="sm"
                   radius={8}
@@ -389,15 +450,20 @@ export const AtelierDatePicker: React.FC<AtelierDatePickerProps> = ({
             <div className="grid grid-cols-7 gap-1">
               {grid.map(cell => {
                 const isWeekend = cell.dayOfWeek === 0 || cell.dayOfWeek === 6;
-                const isDisabledDay = mode === 'datetime' && isWeekend;
+                const isPastDay = mode === 'datetime' && cell.isoDate < todayIso;
+                const isDisabledDay = mode === 'datetime' && (isWeekend || isPastDay);
+                const disabledReason = isPastDay
+                  ? 'Past dates cannot be booked'
+                  : 'Studio closed Saturday & Sunday';
+                const disabledAria = isPastDay ? ' (Past date)' : ' (Closed)';
                 const isSelected = parsed.isoDate === cell.isoDate && !isDisabledDay;
                 return (
                   <button
                     key={cell.isoDate}
                     type="button"
                     disabled={isDisabledDay}
-                    aria-label={`${cell.isoDate}${isDisabledDay ? ' (Closed)' : ''}`}
-                    title={isDisabledDay ? 'Studio closed Saturday & Sunday' : undefined}
+                    aria-label={`${cell.isoDate}${isDisabledDay ? disabledAria : ''}`}
+                    title={isDisabledDay ? disabledReason : undefined}
                     onClick={() => handleSelectDay(cell.isoDate, isDisabledDay)}
                     className={`flex h-8 w-full items-center justify-center rounded-lg text-xs tabular-nums transition-colors ${
                       isDisabledDay

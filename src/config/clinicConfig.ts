@@ -66,6 +66,8 @@ export const CLINIC_CONFIG = {
   defaultTelegramBotUsername: 'ElaraAtelierBot',
   defaultTeamBotUsername: 'ElaraAtelierTeamBot',
   clinicTimeZone: 'America/Los_Angeles',
-  eodPdfHour: 19,
-  eodPdfMinute: 15,
+  morningDigestHour: 8,
+  morningDigestMinute: 30,
+  eodPdfHour: 8,
+  eodPdfMinute: 30,
 } as const;

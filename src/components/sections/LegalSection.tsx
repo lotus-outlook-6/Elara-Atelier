@@ -112,16 +112,16 @@ export const LegalSection: React.FC<LegalSectionProps> = ({
                 </li>
                 <li>
                   <strong>Patient Profile Record (Firestore <code className="text-xs">users/&#123;userId&#125;</code>):</strong>{' '}
-                  Stores your full name, email address, phone number with country code, optional
-                  WhatsApp number (if permitted), date of birth (used strictly to confirm you are
-                  18 or older), Telegram contact preference, and record creation/update timestamps.
+                  Stores your full name, email address, phone number with country code (used for
+                  clinic calls and WhatsApp confirmation), date of birth (used strictly to confirm
+                  you are 18 or older), and record creation/update timestamps.
                 </li>
                 <li>
                   <strong>Appointment Bookings (Firestore <code className="text-xs">bookings/&#123;bookingId&#125;</code>):</strong>{' '}
                   Stores your booking ID, user ID, full name, phone number with country code,
-                  optional WhatsApp contact, date of birth, selected treatment name and ID,
+                  WhatsApp contact permission, date of birth, selected treatment name and ID,
                   preferred appointment date and time, current status (requested, confirmed, or
-                  cancelled), Telegram notification delivery flags, and timestamps.
+                  cancelled), and timestamps.
                 </li>
               </ul>
             </section>
@@ -147,20 +147,19 @@ export const LegalSection: React.FC<LegalSectionProps> = ({
               <div className="flex items-center gap-2.5">
                 <ShieldCheck className="h-4 w-4 text-[#B68D5E]" aria-hidden="true" />
                 <h2 className="font-serif text-xl font-semibold text-[#1F1B18]">
-                  3. Phone, WhatsApp, Telegram &amp; Map Services
+                  3. Phone, WhatsApp &amp; Map Services
                 </h2>
               </div>
               <ul className="space-y-2 text-sm text-[#6E655F]">
                 <li>
-                  <strong>Messaging Permission:</strong> Your phone number is collected for direct
-                  clinic calls. You choose during booking whether we may also reach out on WhatsApp
-                  or Telegram using that number. If you uncheck the permission box, our staff will
-                  only call you.
+                  <strong>WhatsApp &amp; Call Permission:</strong> Your phone number is collected
+                  for clinic calls and WhatsApp appointment confirmation. If you uncheck the
+                  WhatsApp permission box during booking, our staff will only call you.
                 </li>
                 <li>
-                  <strong>Telegram Bot:</strong> If you open our Telegram patient bot or our team
-                  bot updates your status, Telegram handles messages under Telegram&apos;s own privacy
-                  policy.
+                  <strong>Internal Staff Notifications:</strong> When you submit a booking, our
+                  server alerts our clinical team privately so they can confirm your visit and
+                  prepare the daily appointment list.
                 </li>
                 <li>
                   <strong>Google Maps:</strong> Our clinic location card loads Google Maps so you
@@ -215,9 +214,9 @@ export const LegalSection: React.FC<LegalSectionProps> = ({
               </h2>
               <p className="text-sm text-[#6E655F]">
                 Appointments are offered Monday through Friday from 10:00 AM to 7:00 PM Pacific
-                Time. Submitting the booking slider sends a visit request—it is not final until a
-                member of our clinic team confirms your slot by phone call, WhatsApp, or Telegram
-                (depending on the permission you choose).
+                Time for today or upcoming weekdays. Submitting the booking slider sends a visit
+                request—it is not final until a member of our clinic team confirms your slot by
+                WhatsApp or phone call (depending on the permission you choose).
               </p>
             </section>
 

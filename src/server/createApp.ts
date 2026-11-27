@@ -17,17 +17,16 @@ import {
 import {
   generatePatientSchedulePdf,
   getClinicDateTimeParts,
-  getNextClinicDateIso,
 } from './pdfSchedule';
 import {
   buildPatientStatusUpdateMessage,
   buildTeamPatientAlertCard,
+  dispatchMorningBookingsDigest,
   dispatchNextDaySchedulePdf,
   processTeamBotUpdate,
   registerTeamBotCommands,
 } from './teamTelegramBot';
 import {
-  buildBookingPushCard,
   buildMainMenuReplyKeyboard,
   dispatchTelegramActions,
   escapeTelegramHtml,
@@ -44,6 +43,7 @@ interface FirebaseAppletConfig {
 
 interface TelegramNotifyBody {
   bookingId?: string;
+  isUpdate?: boolean;
   userId?: string;
   fullName?: string;
   phoneCountryCode?: string;
@@ -510,17 +510,10 @@ export function createExpressApp(): CreateAppResult {
     });
   });
 
-  // Register a booking, notify the clinical Team Bot with a 1-click WhatsApp confirmation link,
-  // and push an interactive card to the patient's matched Telegram chat when linked
+  // Register a booking and notify the clinical Team Bot ONCE when the booking is submitted (or explicitly updated)
   app.post('/api/telegram/notify', async (req, res) => {
     const body = (req.body || {}) as TelegramNotifyBody;
-    const botToken = process.env.TELEGRAM_BOT_TOKEN?.trim() || '';
-    const botUsername = (process.env.TELEGRAM_BOT_USERNAME?.trim() || 'ElaraAtelierBot').replace(
-      /^@/,
-      ''
-    );
     const bookingId = String(body.bookingId || `bk_${Date.now()}`).replace(/[^a-zA-Z0-9_-]/g, '');
-    const deepLink = `https://t.me/${botUsername}?start=${bookingId}`;
 
     const phoneFallback = String(body.phone || '').trim();
     const fallbackCodeMatch = /^(\+\d{1,4})\s*(\d+)$/.exec(phoneFallback);
@@ -536,6 +529,9 @@ export function createExpressApp(): CreateAppResult {
       ? String(body.whatsappNumber || primaryDigits).replace(/\D/g, '') || primaryDigits
       : '';
 
+    const alreadyExists = Boolean(store.getBookingById(bookingId));
+    const isExplicitUpdate = Boolean(body.isUpdate);
+
     const record = store.upsertBooking({
       id: bookingId,
       userId: body.userId ? String(body.userId) : null,
@@ -548,77 +544,33 @@ export function createExpressApp(): CreateAppResult {
       treatmentId: String(body.treatmentId || 'consultation'),
       treatmentName: String(body.treatmentName || 'Consultation'),
       preferredDateTime: String(body.preferredDateTime || ''),
-      telegramMethod: body.telegramMethod === 'phone' ? 'phone' : 'username',
-      telegramValue: String(body.telegramValue || ''),
+      telegramMethod: 'phone',
+      telegramValue: `${primaryCode}${primaryDigits}`,
       status: 'requested',
       createdAtMs: typeof body.createdAtMs === 'number' ? body.createdAtMs : Date.now(),
       updatedAtMs: Date.now(),
       chatId: body.chatId?.trim() || undefined,
     });
 
-    // Always notify Doctors / Clinical Team Bot individually for every patient booking
-    const teamDeliveredCount = await pushIndividualTeamBookingAlert(store, record);
-
-    if (!messagingConsent) {
-      res.json({
-        ok: true,
-        sent: false,
-        teamNotified: teamDeliveredCount > 0,
-        mode: 'call_only',
-        deepLink,
-        message: 'Patient requested phone call confirmation only.',
-      });
-      return;
+    // Notify Doctors / Clinical Team Bot ONCE when a new booking is created (or on explicit edit)
+    let teamDeliveredCount = 0;
+    if (!alreadyExists || isExplicitUpdate) {
+      const heading = isExplicitUpdate
+        ? 'ELARA ATELIER · BOOKING UPDATED'
+        : 'ELARA ATELIER · NEW PATIENT BOOKING';
+      teamDeliveredCount = await pushIndividualTeamBookingAlert(store, record, heading);
     }
 
-    if (!botToken) {
-      res.json({
-        ok: true,
-        sent: false,
-        teamNotified: teamDeliveredCount > 0,
-        mode: 'deep_link',
-        deepLink,
-        message: 'TELEGRAM_BOT_TOKEN not configured; deep link returned.',
-      });
-      return;
-    }
-
-    // Strict per-user routing: only send directly if we have a verified chatId matching this user's handle or phone
-    const matchedChatId = store.findChatIdForBooking(record);
-    if (!matchedChatId) {
-      res.json({
-        ok: true,
-        sent: false,
-        teamNotified: teamDeliveredCount > 0,
-        mode: 'pending_bot_start',
-        deepLink,
-        message: 'Tap the Telegram bot link to open your private concierge menu.',
-      });
-      return;
-    }
-
-    const card = buildBookingPushCard(record);
-    try {
-      const sent = await sendTelegramCard(botToken, matchedChatId, card.text, card.reply_markup);
-      res.json({
-        ok: true,
-        sent,
-        teamNotified: teamDeliveredCount > 0,
-        mode: sent ? 'bot_api' : 'deep_link',
-        deepLink,
-      });
-    } catch {
-      res.json({
-        ok: true,
-        sent: false,
-        teamNotified: teamDeliveredCount > 0,
-        mode: 'deep_link',
-        deepLink,
-      });
-    }
+    res.json({
+      ok: true,
+      sent: teamDeliveredCount > 0,
+      teamNotified: teamDeliveredCount > 0,
+      mode: messagingConsent ? 'whatsapp' : 'call_only',
+    });
   });
 
-  // Trigger Next-Day Patient Schedule PDF report (used by Vercel Cron at EOD or manual clinic trigger)
+  // Trigger Morning Bookings List (used by Vercel Cron at 8:30 AM PT or manual clinic trigger)
+  // Sends NOTHING when there are 0 active bookings for the date.
   const handleDailyReportRequest = async (
     req: express.Request,
     res: express.Response
@@ -638,9 +590,9 @@ export function createExpressApp(): CreateAppResult {
         : undefined;
 
     if (req.query.download === '1' || req.query.format === 'pdf') {
-      const nextDay = getNextClinicDateIso(new Date(), CLINIC_CONFIG.clinicTimeZone, true);
-      const targetIso = requestedDate || nextDay.targetIsoDate;
-      const displayLabel = requestedDate || nextDay.displayDateLabel;
+      const todayLocal = getClinicDateTimeParts(new Date(), CLINIC_CONFIG.clinicTimeZone);
+      const targetIso = requestedDate || todayLocal.isoDate;
+      const displayLabel = requestedDate || todayLocal.isoDate;
       const pdfBuffer = generatePatientSchedulePdf({
         targetDateIso: targetIso,
         displayDateLabel: displayLabel,
@@ -663,21 +615,38 @@ export function createExpressApp(): CreateAppResult {
     if (!teamBotToken || teamChatIds.length === 0) {
       res.json({
         ok: false,
+        skipped: true,
         sentCount: 0,
         message: 'Team Bot token or team chat ID is not configured yet.',
       });
       return;
     }
 
-    const result = await dispatchNextDaySchedulePdf({
+    const todayLocal = getClinicDateTimeParts(new Date(), CLINIC_CONFIG.clinicTimeZone);
+    const targetIsoDate = requestedDate || todayLocal.isoDate;
+    const forceSend = req.query.force === '1';
+
+    if (!forceSend && store.getLastDailyPdfSentForDate() === targetIsoDate) {
+      res.json({
+        ok: true,
+        skipped: true,
+        reason: 'already_sent_today',
+        sentCount: 0,
+        patientCount: store.getBookingsForDate(targetIsoDate).length,
+        targetIsoDate,
+      });
+      return;
+    }
+
+    const result = await dispatchMorningBookingsDigest({
       store,
       teamBotToken,
       targetChatIds: teamChatIds,
-      targetIsoDate: requestedDate,
+      targetIsoDate,
       displayDateLabel: requestedDate,
     });
 
-    if (result.ok) {
+    if (!result.skipped && result.ok) {
       store.markDailyPdfSent(result.targetIsoDate);
     }
 
@@ -817,9 +786,10 @@ export function startTelegramPollingIfEnabled(
     });
   }
 
-  // Automatic End-of-Day Next-Day Patient Roster PDF scheduler (7:15 PM America/Los_Angeles)
+  // Automatic Morning Bookings List scheduler (8:30 AM America/Los_Angeles)
+  // Strictly skips sending when there are 0 bookings for today.
   if (effectiveTeamToken) {
-    const checkAndSendEodPdf = async () => {
+    const checkAndSendMorningList = async () => {
       const teamChatIds = store.getTeamChatIds(
         process.env.TELEGRAM_TEAM_CHAT_ID || process.env.TELEGRAM_CONCIERGE_CHAT_ID
       );
@@ -827,32 +797,32 @@ export function startTelegramPollingIfEnabled(
 
       const now = new Date();
       const localNow = getClinicDateTimeParts(now, CLINIC_CONFIG.clinicTimeZone);
-      const pastTriggerTime =
-        localNow.hour > CLINIC_CONFIG.eodPdfHour ||
-        (localNow.hour === CLINIC_CONFIG.eodPdfHour && localNow.minute >= CLINIC_CONFIG.eodPdfMinute);
+      const pastMorningTrigger =
+        localNow.hour > CLINIC_CONFIG.morningDigestHour ||
+        (localNow.hour === CLINIC_CONFIG.morningDigestHour &&
+          localNow.minute >= CLINIC_CONFIG.morningDigestMinute);
+      const stillInMorningWindow = localNow.hour < 12;
 
-      if (!pastTriggerTime) return;
+      if (!pastMorningTrigger || !stillInMorningWindow) return;
 
-      const nextDay = getNextClinicDateIso(now, CLINIC_CONFIG.clinicTimeZone, true);
-      if (store.getLastDailyPdfSentForDate() === nextDay.targetIsoDate) {
+      if (store.getLastDailyPdfSentForDate() === localNow.isoDate) {
         return;
       }
 
-      const result = await dispatchNextDaySchedulePdf({
+      const result = await dispatchMorningBookingsDigest({
         store,
         teamBotToken: effectiveTeamToken,
         targetChatIds: teamChatIds,
-        targetIsoDate: nextDay.targetIsoDate,
-        displayDateLabel: nextDay.displayDateLabel,
+        targetIsoDate: localNow.isoDate,
         nowMs: now.getTime(),
       });
-      if (result.ok) {
-        store.markDailyPdfSent(nextDay.targetIsoDate);
+      if (!result.skipped && result.ok) {
+        store.markDailyPdfSent(localNow.isoDate);
       }
     };
 
     const timer = setInterval(() => {
-      void checkAndSendEodPdf();
+      void checkAndSendMorningList();
     }, 60_000);
     timer.unref?.();
   }

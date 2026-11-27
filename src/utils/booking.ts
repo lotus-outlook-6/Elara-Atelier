@@ -1,8 +1,8 @@
 /**
  * Pure domain utilities for treatment filtering, strict patient form validation
- * (non-numeric names, country-coded phone, 18+ DOB gate, Telegram handle/phone),
+ * (non-numeric names, country-coded phone, 18+ DOB gate, upcoming weekday check),
  * 4-hour post-booking edit window checks, monthly calendar grid generation,
- * WhatsApp/Telegram concierge deep links, and comparison slider bounds.
+ * WhatsApp concierge deep links, and comparison slider bounds.
  */
 
 import { CLINIC_CONFIG } from '../config/clinicConfig';
@@ -27,8 +27,8 @@ export interface BookingFormValues {
   treatmentId: string;
   preferredDateTime: string;
   telegramSameAsPhone?: boolean;
-  telegramMethod: TelegramContactMethod;
-  telegramValue: string;
+  telegramMethod?: TelegramContactMethod;
+  telegramValue?: string;
 }
 
 export interface BookingValidationResult {
@@ -47,8 +47,8 @@ export interface AccountFormValues {
   whatsappNumber?: string;
   dob: string;
   telegramSameAsPhone?: boolean;
-  telegramMethod: TelegramContactMethod;
-  telegramValue: string;
+  telegramMethod?: TelegramContactMethod;
+  telegramValue?: string;
 }
 
 export interface AccountValidationResult {
@@ -236,37 +236,23 @@ export function validateTelegramContact(
 }
 
 /**
- * Resolve the effective Telegram method and value when "same as phone number" is enabled.
- * Inputs: contact object with phoneCountryCode, phoneNumber, telegramMethod, telegramValue, telegramSameAsPhone.
- * Output: { method, value } ready for Firestore persistence and concierge links.
+ * Resolve the normalized phone contact stored alongside Firestore records.
+ * Always derives E.164 phone contact from phoneCountryCode + phoneNumber so
+ * patients are never asked for Telegram usernames.
+ * Inputs: contact object with phoneCountryCode and phoneNumber.
+ * Output: { method: 'phone', value: '+<digits>' }.
+ * Errors: None.
  */
 export function resolveEffectiveTelegram(values: {
   phoneCountryCode: string;
   phoneNumber: string;
-  telegramMethod: TelegramContactMethod;
-  telegramValue: string;
+  telegramMethod?: TelegramContactMethod;
+  telegramValue?: string;
   telegramSameAsPhone?: boolean;
 }): { method: TelegramContactMethod; value: string } {
-  if (values.telegramSameAsPhone) {
-    const optionalHandle = values.telegramValue.trim();
-    if (optionalHandle) {
-      return {
-        method: 'username',
-        value: normalizeTelegramValue('username', optionalHandle, values.phoneCountryCode),
-      };
-    }
-    return {
-      method: 'phone',
-      value: normalizeTelegramValue('phone', values.phoneNumber, values.phoneCountryCode),
-    };
-  }
   return {
-    method: values.telegramMethod,
-    value: normalizeTelegramValue(
-      values.telegramMethod,
-      values.telegramValue,
-      values.phoneCountryCode
-    ),
+    method: 'phone',
+    value: normalizeTelegramValue('phone', values.phoneNumber, values.phoneCountryCode),
   };
 }
 
@@ -325,8 +311,11 @@ export function getTreatmentById(
 
 /**
  * Validate appointment booking fields prior to submission or edit.
+ * Enforces non-numeric name, country-coded phone, 18+ DOB, treatment selection,
+ * and an open studio weekday (Mon–Fri) that is NOT in the past.
  * Inputs: BookingFormValues object and optional reference Date.
  * Output: BookingValidationResult with valid boolean and field-level error messages.
+ * Errors: None (returns structured errors object).
  */
 export function validateBookingForm(
   values: BookingFormValues,
@@ -340,16 +329,6 @@ export function validateBookingForm(
   const phoneError = validatePhoneWithCountryCode(values.phoneCountryCode, values.phoneNumber);
   if (phoneError) errors.phoneNumber = phoneError;
 
-  if (values.messagingConsent !== false && values.whatsappSameAsPhone === false) {
-    const waError = validatePhoneWithCountryCode(
-      values.whatsappCountryCode || '+1',
-      values.whatsappNumber || ''
-    );
-    if (waError) {
-      errors.whatsappNumber = waError.replace('phone digits', 'WhatsApp digits');
-    }
-  }
-
   const dobError = validateAdultDob(values.dob, referenceDate);
   if (dobError) errors.dob = dobError;
 
@@ -359,25 +338,12 @@ export function validateBookingForm(
 
   if (!values.preferredDateTime.trim()) {
     errors.preferredDateTime = 'Please choose a preferred date and time.';
+  } else if (isPastCalendarDate(values.preferredDateTime, referenceDate)) {
+    errors.preferredDateTime =
+      'Past dates cannot be booked. Please choose today or an upcoming weekday.';
   } else if (!isStudioWeekday(values.preferredDateTime)) {
     errors.preferredDateTime =
       'Studio appointments are available Monday – Friday only (closed Sat & Sun).';
-  }
-
-  if (values.telegramSameAsPhone) {
-    if (values.telegramValue.trim()) {
-      const optionalHandleError = validateTelegramContact(
-        'username',
-        normalizeTelegramValue('username', values.telegramValue, values.phoneCountryCode)
-      );
-      if (optionalHandleError) errors.telegramValue = optionalHandleError;
-    }
-  } else {
-    const telegramError = validateTelegramContact(
-      values.telegramMethod,
-      normalizeTelegramValue(values.telegramMethod, values.telegramValue, values.phoneCountryCode)
-    );
-    if (telegramError) errors.telegramValue = telegramError;
   }
 
   return {
@@ -387,9 +353,10 @@ export function validateBookingForm(
 }
 
 /**
- * Validate account registration fields (email, password, non-numeric name, phone+code, WhatsApp, 18+ DOB, Telegram).
+ * Validate account registration fields (email, password, non-numeric name, phone+code, 18+ DOB).
  * Inputs: AccountFormValues, requirePassword boolean, optional reference Date.
  * Output: AccountValidationResult with field-level errors.
+ * Errors: None (returns structured errors object).
  */
 export function validateAccountForm(
   values: AccountFormValues,
@@ -413,34 +380,8 @@ export function validateAccountForm(
   const phoneError = validatePhoneWithCountryCode(values.phoneCountryCode, values.phoneNumber);
   if (phoneError) errors.phoneNumber = phoneError;
 
-  if (values.whatsappSameAsPhone === false) {
-    const waError = validatePhoneWithCountryCode(
-      values.whatsappCountryCode || '+1',
-      values.whatsappNumber || ''
-    );
-    if (waError) {
-      errors.whatsappNumber = waError.replace('phone digits', 'WhatsApp digits');
-    }
-  }
-
   const dobError = validateAdultDob(values.dob, referenceDate);
   if (dobError) errors.dob = dobError;
-
-  if (values.telegramSameAsPhone) {
-    if (values.telegramValue.trim()) {
-      const optionalHandleError = validateTelegramContact(
-        'username',
-        normalizeTelegramValue('username', values.telegramValue, values.phoneCountryCode)
-      );
-      if (optionalHandleError) errors.telegramValue = optionalHandleError;
-    }
-  } else {
-    const telegramError = validateTelegramContact(
-      values.telegramMethod,
-      normalizeTelegramValue(values.telegramMethod, values.telegramValue, values.phoneCountryCode)
-    );
-    if (telegramError) errors.telegramValue = telegramError;
-  }
 
   return {
     valid: Object.keys(errors).length === 0,
@@ -520,9 +461,69 @@ export function extractBookingIsoDate(preferredDateTime: string): string {
 }
 
 /**
+ * Format a Date object as a local YYYY-MM-DD calendar string.
+ * Inputs: optional referenceDate Date (defaults to today).
+ * Output: 'YYYY-MM-DD' string.
+ * Errors: None.
+ */
+export function getTodayIsoDate(referenceDate: Date = new Date()): string {
+  return `${referenceDate.getFullYear()}-${String(referenceDate.getMonth() + 1).padStart(2, '0')}-${String(referenceDate.getDate()).padStart(2, '0')}`;
+}
+
+/**
+ * Determine whether an ISO date (YYYY-MM-DD) or YYYY-MM-DDTHH:MM falls strictly before today's calendar date.
+ * Inputs: isoDateOrDateTime string, optional referenceDate Date.
+ * Output: boolean (true when calendar date is earlier than today, false otherwise).
+ * Errors: None.
+ */
+export function isPastCalendarDate(
+  isoDateOrDateTime: string,
+  referenceDate: Date = new Date()
+): boolean {
+  const iso = extractBookingIsoDate(isoDateOrDateTime);
+  if (!iso) return false;
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  if (!match) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const dt = new Date(year, month - 1, day);
+  if (
+    Number.isNaN(dt.getTime()) ||
+    dt.getFullYear() !== year ||
+    dt.getMonth() !== month - 1 ||
+    dt.getDate() !== day
+  ) {
+    return false;
+  }
+  return iso < getTodayIsoDate(referenceDate);
+}
+
+/**
+ * Compute a valid default booking datetime string landing on today (if Mon–Fri)
+ * or the next upcoming Monday, never returning a past date or weekend.
+ * Inputs: optional referenceDate Date, optional timeSlot string ('HH:mm').
+ * Output: 'YYYY-MM-DDTHH:mm' string.
+ * Errors: None.
+ */
+export function getDefaultUpcomingBookingDateTime(
+  referenceDate: Date = new Date(),
+  timeSlot = '11:00'
+): string {
+  const isoDate = resolveNextOpenStudioIsoDate(
+    '',
+    referenceDate.getFullYear(),
+    referenceDate.getMonth(),
+    referenceDate
+  );
+  return `${isoDate}T${timeSlot}`;
+}
+
+/**
  * Determine whether an ISO date (YYYY-MM-DD) or YYYY-MM-DDTHH:MM falls on a studio open weekday (Mon–Fri).
  * Inputs: isoDateOrDateTime string.
  * Output: boolean (true for Mon–Fri, false for Sat/Sun or invalid).
+ * Errors: None.
  */
 export function isStudioWeekday(isoDateOrDateTime: string): boolean {
   const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(isoDateOrDateTime.trim());
@@ -544,9 +545,10 @@ export function isStudioWeekday(isoDateOrDateTime: string): boolean {
 }
 
 /**
- * Resolve a guaranteed Monday–Friday YYYY-MM-DD date from a candidate ISO date or visible calendar month.
+ * Resolve a guaranteed non-past Monday–Friday YYYY-MM-DD date from a candidate ISO date or visible calendar month.
  * Inputs: candidateIsoDate string, fallbackYear number, fallbackMonthIndex number (0-11), optional referenceDate.
- * Output: YYYY-MM-DD string landing on Monday–Friday.
+ * Output: YYYY-MM-DD string landing on today or an upcoming Monday–Friday.
+ * Errors: None.
  */
 export function resolveNextOpenStudioIsoDate(
   candidateIsoDate: string,
@@ -554,23 +556,33 @@ export function resolveNextOpenStudioIsoDate(
   fallbackMonthIndex: number,
   referenceDate: Date = new Date()
 ): string {
-  if (candidateIsoDate && isStudioWeekday(candidateIsoDate)) {
+  if (
+    candidateIsoDate &&
+    isStudioWeekday(candidateIsoDate) &&
+    !isPastCalendarDate(candidateIsoDate, referenceDate)
+  ) {
     return candidateIsoDate;
   }
-  const isCurrentCursorMonth =
-    fallbackYear === referenceDate.getFullYear() && fallbackMonthIndex === referenceDate.getMonth();
+
+  const refYear = referenceDate.getFullYear();
+  const refMonth = referenceDate.getMonth();
+  const isPastMonth =
+    fallbackYear < refYear || (fallbackYear === refYear && fallbackMonthIndex < refMonth);
+  const startYear = isPastMonth ? refYear : fallbackYear;
+  const startMonth = isPastMonth ? refMonth : fallbackMonthIndex;
+  const isCurrentCursorMonth = startYear === refYear && startMonth === refMonth;
   let startDay = isCurrentCursorMonth ? referenceDate.getDate() : 1;
-  const maxDaysInMonth = new Date(fallbackYear, fallbackMonthIndex + 1, 0).getDate();
+  const maxDaysInMonth = new Date(startYear, startMonth + 1, 0).getDate();
   if (startDay > maxDaysInMonth) startDay = 1;
 
   for (let offset = 0; offset < 14; offset += 1) {
-    const candidate = new Date(fallbackYear, fallbackMonthIndex, startDay + offset);
+    const candidate = new Date(startYear, startMonth, startDay + offset);
     const weekday = candidate.getDay();
     if (weekday >= 1 && weekday <= 5) {
-      return `${candidate.getFullYear()}-${String(candidate.getMonth() + 1).padStart(2, '0')}-${String(candidate.getDate()).padStart(2, '0')}`;
+      return getTodayIsoDate(candidate);
     }
   }
-  return `${fallbackYear}-${String(fallbackMonthIndex + 1).padStart(2, '0')}-02`;
+  return getTodayIsoDate(referenceDate);
 }
 
 /**
@@ -612,6 +624,7 @@ export function buildCalendarMonthGrid(
  * Build a pre-filled WhatsApp concierge URL containing appointment details.
  * Inputs: whatsappNumber, BookingFormValues, and optional treatment label.
  * Output: fully encoded https://wa.me/... URL.
+ * Errors: None.
  */
 export function buildWhatsAppBookingUrl(
   whatsappNumber: string,
@@ -623,21 +636,20 @@ export function buildWhatsAppBookingUrl(
     treatmentLabel || getTreatmentById(values.treatmentId)?.name || values.treatmentId;
   const formattedTime = formatPreferredDateTime(values.preferredDateTime);
   const fullPhone = `${values.phoneCountryCode} ${values.phoneNumber}`.trim();
-  const effectiveWhatsApp = resolveEffectiveWhatsApp(values);
-  const effectiveTelegram = resolveEffectiveTelegram(values);
-  const telegramDisplay = effectiveTelegram.value;
+  const effectiveWhatsApp = resolveEffectiveWhatsApp({
+    phoneCountryCode: values.phoneCountryCode,
+    phoneNumber: values.phoneNumber,
+    whatsappSameAsPhone: true,
+  });
 
   const lines = [
     'Hello Elara Atelier Team,',
     'I would like to confirm my clinic visit request:',
     `• Name: ${values.fullName.trim()}`,
-    `• Phone (Call): ${fullPhone}`,
+    `• Phone: ${fullPhone}`,
     ...(values.messagingConsent === false
       ? ['• Contact Preference: Phone Call Only']
-      : [
-          `• WhatsApp: ${effectiveWhatsApp.display}`,
-          `• Telegram: ${telegramDisplay}`,
-        ]),
+      : [`• WhatsApp: ${effectiveWhatsApp.display}`]),
     `• Treatment: ${treatmentName}`,
     `• Preferred Date & Time: ${formattedTime}`,
   ];

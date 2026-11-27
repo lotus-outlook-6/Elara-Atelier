@@ -10,7 +10,7 @@
   "crons": [
     {
       "path": "/api/telegram/daily-report",
-      "schedule": "15 2 * * *"
+      "schedule": "30 16 * * *"
     }
   ],
   "rewrites": [

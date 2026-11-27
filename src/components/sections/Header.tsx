@@ -76,21 +76,21 @@ export const Header: React.FC<HeaderProps> = ({
           : 'border-b border-transparent bg-transparent'
       }`}
     >
-      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-2 px-3.5 sm:gap-4 sm:px-8 md:h-20 2xl:max-w-[1440px]">
+      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-2 px-3 sm:gap-4 sm:px-8 md:h-20 2xl:max-w-[1440px]">
         {/* Zone 1: Brand Emblem + Wordmark */}
         <a
           href="#top"
           onClick={() => {
             if (activeView !== 'studio') onReturnStudio();
           }}
-          className="inline-flex shrink-0 items-center gap-1.5 font-serif text-[13px] font-semibold tracking-[0.09em] whitespace-nowrap text-[#1F1B18] no-underline sm:gap-2.5 sm:text-xl sm:tracking-[0.18em]"
+          className="inline-flex min-w-0 shrink items-center gap-1.5 font-serif text-[13px] font-semibold tracking-[0.08em] whitespace-nowrap text-[#1F1B18] no-underline sm:shrink-0 sm:gap-2.5 sm:text-xl sm:tracking-[0.18em]"
         >
           <img
             src="/elara-logo.png"
             alt="Elara Atelier emblem"
             className="h-7 w-7 shrink-0 object-contain sm:h-9 sm:w-9"
           />
-          <span>{CLINIC_CONFIG.brandName}</span>
+          <span className="truncate">{CLINIC_CONFIG.brandName}</span>
         </a>
 
         {/* Zone 2: Desktop Anchor Navigation */}
@@ -108,7 +108,7 @@ export const Header: React.FC<HeaderProps> = ({
         </nav>
 
         {/* Zone 3: Account Controls + Hold-Only Book Visit with Day & Time Highlight */}
-        <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
+        <div className="flex shrink-0 items-center gap-1.5 sm:gap-3">
           {userDisplayName ? (
             <div className="hidden items-center gap-2 sm:flex">
               <button
@@ -152,7 +152,7 @@ export const Header: React.FC<HeaderProps> = ({
           {/* Book Visit — reveals Mon–Fri studio hours smoothly on hover/focus */}
           <div
             data-testid="header-book-visit-control"
-            className="group/book inline-flex items-center rounded-xl border border-[#E2D9CE] bg-[#EFE9E0] p-0.5 transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] sm:p-1"
+            className="group/book inline-flex shrink-0 items-center rounded-xl border border-[#E2D9CE] bg-[#EFE9E0] p-0.5 transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] sm:p-1"
           >
             <span className="hidden max-w-0 overflow-hidden text-[11px] font-medium tracking-[0.12em] whitespace-nowrap text-[#1F1B18] uppercase opacity-0 transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover/book:max-w-[210px] group-hover/book:pr-2.5 group-hover/book:pl-2.5 group-hover/book:opacity-100 group-focus-within/book:max-w-[210px] group-focus-within/book:pr-2.5 group-focus-within/book:pl-2.5 group-focus-within/book:opacity-100 sm:inline-block">
               {CLINIC_CONFIG.hoursShort}
@@ -166,9 +166,9 @@ export const Header: React.FC<HeaderProps> = ({
               textColor="#FAF7F2"
               fillTextColor="#FAF7F2"
               glow={false}
-              doneLabel="Scrolling down..."
+              doneLabel="Opening..."
               onHold={onBookClick}
-              className="!h-8 !px-3 text-[10px] tracking-[0.06em] uppercase sm:!h-9 sm:!px-4 sm:text-xs sm:tracking-[0.1em]"
+              className="!h-8 !px-2.5 text-[10px] tracking-[0.06em] uppercase sm:!h-9 sm:!px-4 sm:text-xs sm:tracking-[0.1em]"
             >
               Book Visit
             </HoldButton>
@@ -176,7 +176,7 @@ export const Header: React.FC<HeaderProps> = ({
 
           <button
             type="button"
-            className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg border border-[#E2D9CE] bg-[#FAF7F2] text-[#1F1B18] transition-colors hover:bg-[#EFE9E0] lg:hidden"
+            className="inline-flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-[#E2D9CE] bg-[#FAF7F2] text-[#1F1B18] transition-colors hover:bg-[#EFE9E0] lg:hidden"
             aria-label={mobileMenuOpen ? 'Close navigation menu' : 'Open navigation menu'}
             aria-expanded={mobileMenuOpen}
             onClick={() => setMobileMenuOpen(prev => !prev)}

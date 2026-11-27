@@ -14,8 +14,10 @@ import {
   getNextClinicDateIso,
 } from './pdfSchedule';
 import {
+  buildMorningBookingsListMessage,
   buildPatientStatusUpdateMessage,
   buildTeamPatientAlertCard,
+  dispatchMorningBookingsDigest,
   processTeamBotUpdate,
   TEAM_MENU_LABELS,
 } from './teamTelegramBot';
@@ -45,14 +47,15 @@ function makeBooking(overrides: Partial<ConciergeBookingRecord> = {}): Concierge
   };
 }
 
-test('buildTeamPatientAlertCard generates 1-click WhatsApp confirmation URL and team controls', () => {
+test('buildTeamPatientAlertCard generates 1-click WhatsApp confirmation URL without patient Telegram fields', () => {
   const booking = makeBooking();
   const card = buildTeamPatientAlertCard(booking);
 
   assert.match(card.text, /Camille Laurent/);
   assert.match(card.text, /Porcelain Veneers/);
   assert.match(card.text, /\+44 7700900123/);
-  assert.match(card.text, /@camille_laurent/);
+  assert.doesNotMatch(card.text, /@camille_laurent/);
+  assert.doesNotMatch(card.text, /<b>Telegram:<\/b>/);
 
   const flatButtons = card.reply_markup.inline_keyboard.flat();
   const waBtn = flatButtons.find(b => b.text.includes('Confirm on WhatsApp'));
@@ -65,7 +68,7 @@ test('buildTeamPatientAlertCard generates 1-click WhatsApp confirmation URL and 
   assert.match(decodedWa, /Beverly Hills/i);
 
   const tgBtn = flatButtons.find(b => b.text.includes('Message @camille_laurent'));
-  assert.equal(tgBtn?.url, 'https://t.me/camille_laurent');
+  assert.equal(tgBtn, undefined, 'Patient Telegram button should not be included');
 
   const confirmBtn = flatButtons.find(b => b.callback_data === 'team:confirm:bk_test_1');
   const cancelBtn = flatButtons.find(b => b.callback_data === 'team:cancel:bk_test_1');
@@ -200,4 +203,105 @@ test('processTeamBotUpdate handles subscription, pending list, /tomorrowpdf, and
     buildPatientStatusUpdateMessage(confirmOutcome.patientNotifyEvents[0].booking),
     /Appointment Confirmed/
   );
+});
+
+test('dispatchMorningBookingsDigest skips silently when 0 active bookings exist and sends once when bookings exist', async () => {
+  const store = new ConciergeStore(null);
+  const sentMessages: Array<{ chatId: string; text: string }> = [];
+  const fakeSend = async (_token: string, chatId: string, text: string): Promise<boolean> => {
+    sentMessages.push({ chatId, text });
+    return true;
+  };
+
+  // 1. 0 bookings on target day -> MUST NOT send any message
+  const zeroResult = await dispatchMorningBookingsDigest({
+    store,
+    teamBotToken: 'test-token',
+    targetChatIds: ['-5001'],
+    targetIsoDate: '2026-11-27',
+    sendMessageFn: fakeSend,
+  });
+  assert.equal(zeroResult.ok, true);
+  assert.equal(zeroResult.skipped, true);
+  assert.equal(zeroResult.reason, 'no_bookings');
+  assert.equal(zeroResult.sentCount, 0);
+  assert.equal(zeroResult.patientCount, 0);
+  assert.equal(sentMessages.length, 0);
+
+  // 2. Only a cancelled booking on target day -> STILL 0 active bookings -> MUST NOT send any message
+  store.upsertBooking(
+    makeBooking({
+      id: 'bk_cancelled_only',
+      preferredDateTime: '2026-11-27T10:00',
+      status: 'cancelled',
+    })
+  );
+  const cancelledOnlyResult = await dispatchMorningBookingsDigest({
+    store,
+    teamBotToken: 'test-token',
+    targetChatIds: ['-5001'],
+    targetIsoDate: '2026-11-27',
+    sendMessageFn: fakeSend,
+  });
+  assert.equal(cancelledOnlyResult.skipped, true);
+  assert.equal(cancelledOnlyResult.reason, 'no_bookings');
+  assert.equal(sentMessages.length, 0);
+
+  // 3. Add 2 active bookings -> sends 1 chronological morning list message per team chat
+  store.upsertBooking(
+    makeBooking({
+      id: 'bk_morning_2',
+      fullName: 'Daniel Park',
+      treatmentName: 'In-Chair Laser Teeth Whitening',
+      phoneCountryCode: '+1',
+      phoneNumber: '3105550222',
+      whatsappCountryCode: '+1',
+      whatsappNumber: '3105550222',
+      messagingConsent: false,
+      preferredDateTime: '2026-11-27T14:00',
+      status: 'requested',
+    })
+  );
+  store.upsertBooking(
+    makeBooking({
+      id: 'bk_morning_1',
+      fullName: 'Hannah Abbott',
+      treatmentName: 'Porcelain Veneers (Smile Makeover)',
+      phoneCountryCode: '+1',
+      phoneNumber: '3105550111',
+      whatsappCountryCode: '+1',
+      whatsappNumber: '3105550111',
+      messagingConsent: true,
+      preferredDateTime: '2026-11-27T10:00',
+      status: 'confirmed',
+    })
+  );
+
+  const activeResult = await dispatchMorningBookingsDigest({
+    store,
+    teamBotToken: 'test-token',
+    targetChatIds: ['-5001'],
+    targetIsoDate: '2026-11-27',
+    sendMessageFn: fakeSend,
+  });
+  assert.equal(activeResult.ok, true);
+  assert.equal(activeResult.skipped, false);
+  assert.equal(activeResult.sentCount, 1);
+  assert.equal(activeResult.patientCount, 2);
+  assert.equal(sentMessages.length, 1);
+
+  const msg = sentMessages[0].text;
+  assert.match(msg, /MORNING BOOKING LIST/);
+  assert.match(msg, /Total Bookings:<\/b> 2/);
+  assert.ok(msg.indexOf('Hannah Abbott') < msg.indexOf('Daniel Park'), 'Bookings must be sorted chronologically');
+  assert.match(msg, /WhatsApp \/ Phone: <code>\+1 3105550111<\/code>/);
+  assert.match(msg, /Phone Call Only: <code>\+1 3105550222<\/code>/);
+
+  // Verify buildMorningBookingsListMessage directly as well
+  const directHtml = buildMorningBookingsListMessage({
+    targetIsoDate: '2026-11-27',
+    displayDateLabel: 'Friday, Nov 27, 2026',
+    bookings: store.getBookingsForDate('2026-11-27'),
+  });
+  assert.match(directHtml, /Friday, Nov 27, 2026/);
 });

@@ -22,8 +22,6 @@ import { useAuth } from '../../context/AuthContext';
 import { CONCIERGE_SUITE_MEDIA } from '../../data/clinicMedia';
 import {
   calculateAge,
-  resolveEffectiveTelegram,
-  resolveEffectiveWhatsApp,
   sanitizeNameInput,
   sanitizePhoneDigits,
   validateAccountForm,
@@ -103,12 +101,7 @@ export const AuthSection: React.FC<AuthSectionProps> = ({
     phoneCountryCode: '+1',
     phoneNumber: '',
     whatsappSameAsPhone: true,
-    whatsappCountryCode: '+1',
-    whatsappNumber: '',
     dob: '',
-    telegramSameAsPhone: true,
-    telegramMethod: 'username',
-    telegramValue: '',
   });
   const [errors, setErrors] = useState<Partial<Record<keyof AccountFormValues, string>>>({});
   const [generalError, setGeneralError] = useState<string | null>(null);
@@ -213,7 +206,10 @@ export const AuthSection: React.FC<AuthSectionProps> = ({
   };
 
   /**
-   * Handle new account creation with strict non-numeric name, country phone, 18+ DOB, and Telegram validation.
+   * Handle new account creation with strict non-numeric name, country phone, and 18+ DOB validation.
+   * Inputs: React form event.
+   * Output: Promise<void>.
+   * Errors: Displays inline field or auth error messages.
    */
   const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -226,20 +222,12 @@ export const AuthSection: React.FC<AuthSectionProps> = ({
 
     setSubmitting(true);
     try {
-      const effectiveTelegram = resolveEffectiveTelegram(registerValues);
-      const effectiveWhatsApp = resolveEffectiveWhatsApp(registerValues);
       if (needsGoogleProfile && user) {
         await saveUserProfile({
           fullName: registerValues.fullName,
           phoneCountryCode: registerValues.phoneCountryCode,
           phoneNumber: registerValues.phoneNumber,
-          whatsappSameAsPhone: registerValues.whatsappSameAsPhone !== false,
-          whatsappCountryCode: effectiveWhatsApp.countryCode,
-          whatsappNumber: effectiveWhatsApp.number,
           dob: registerValues.dob,
-          telegramSameAsPhone: registerValues.telegramSameAsPhone,
-          telegramMethod: effectiveTelegram.method,
-          telegramValue: effectiveTelegram.value,
         });
       } else {
         await registerWithEmail(registerValues);
@@ -250,21 +238,6 @@ export const AuthSection: React.FC<AuthSectionProps> = ({
     } finally {
       setSubmitting(false);
     }
-  };
-
-  /**
-   * Toggle whether the registration phone number is also the user's Telegram number.
-   * Inputs: checked boolean.
-   */
-  const toggleTelegramSameAsPhone = (checked: boolean) => {
-    setRegisterValues(prev => ({
-      ...prev,
-      telegramSameAsPhone: checked,
-      telegramMethod: 'username',
-      telegramValue:
-        checked && prev.telegramMethod === 'phone' ? '' : prev.telegramValue,
-    }));
-    setErrors(prev => ({ ...prev, telegramValue: undefined }));
   };
 
   return (
@@ -539,7 +512,7 @@ export const AuthSection: React.FC<AuthSectionProps> = ({
                               htmlFor="reg-fullname"
                               className="mb-1.5 block text-xs font-semibold tracking-[0.12em] text-[#1F1B18] uppercase"
                             >
-                              Full Name (Letters Only)
+                              Full Name
                             </label>
                             <div className="relative">
                               <User className="pointer-events-none absolute top-3.5 left-3.5 h-4 w-4 text-[#6E655F]" />
@@ -547,6 +520,7 @@ export const AuthSection: React.FC<AuthSectionProps> = ({
                                 id="reg-fullname"
                                 type="text"
                                 autoComplete="name"
+                                placeholder="Enter your full name"
                                 value={registerValues.fullName}
                                 onChange={e => {
                                   const hadDigits = /[0-9]/.test(e.target.value);
@@ -558,8 +532,7 @@ export const AuthSection: React.FC<AuthSectionProps> = ({
                                     }));
                                   }
                                 }}
-                                placeholder="Hannah Abbott"
-                                className="h-11 w-full rounded-[10px] border border-[#E2D9CE] bg-[#FAF7F2] pr-3.5 pl-10 text-sm text-[#1F1B18] outline-none transition-colors focus:border-[#B68D5E]"
+                                className="h-11 w-full rounded-[10px] border border-[#E2D9CE] bg-[#FAF7F2] pr-3.5 pl-10 text-sm text-[#1F1B18] placeholder:text-[#9A9086] outline-none transition-colors focus:border-[#B68D5E]"
                               />
                             </div>
                             {errors.fullName ? (
@@ -619,13 +592,13 @@ export const AuthSection: React.FC<AuthSectionProps> = ({
                             </div>
                           ) : null}
 
-                          {/* Phone with unified GlideSelect Country Code + Same-as-Telegram Option */}
+                          {/* Phone with unified GlideSelect Country Code (used for Calls & WhatsApp) */}
                           <div>
                             <label
                               htmlFor="reg-phone"
                               className="mb-1.5 block text-xs font-semibold tracking-[0.12em] text-[#1F1B18] uppercase"
                             >
-                              Phone Number (For Call Purposes)
+                              Phone Number (For Call &amp; WhatsApp)
                             </label>
                             <div className="flex gap-2 sm:gap-2.5">
                               <GlideSelect
@@ -649,50 +622,18 @@ export const AuthSection: React.FC<AuthSectionProps> = ({
                                   id="reg-phone"
                                   type="tel"
                                   inputMode="numeric"
+                                  placeholder="Enter phone number"
                                   value={registerValues.phoneNumber}
                                   onChange={e =>
                                     updateRegField('phoneNumber', sanitizePhoneDigits(e.target.value))
                                   }
-                                  placeholder="3105550148"
-                                  className="h-11 w-full rounded-[10px] border border-[#E2D9CE] bg-[#FAF7F2] pr-3.5 pl-10 text-sm text-[#1F1B18] tabular-nums outline-none transition-colors focus:border-[#B68D5E]"
+                                  className="h-11 w-full rounded-[10px] border border-[#E2D9CE] bg-[#FAF7F2] pr-3.5 pl-10 text-sm text-[#1F1B18] placeholder:text-[#9A9086] tabular-nums outline-none transition-colors focus:border-[#B68D5E]"
                                 />
                               </div>
                             </div>
-
-                            <div className="mt-2.5 flex flex-col gap-2">
-                              <label className="inline-flex cursor-pointer items-center gap-2 text-xs text-[#6E655F] select-none hover:text-[#1F1B18]">
-                                <input
-                                  type="checkbox"
-                                  checked={registerValues.whatsappSameAsPhone !== false}
-                                  onChange={e => {
-                                    const checked = e.target.checked;
-                                    setRegisterValues(prev => ({
-                                      ...prev,
-                                      whatsappSameAsPhone: checked,
-                                      whatsappCountryCode: checked
-                                        ? prev.phoneCountryCode
-                                        : prev.whatsappCountryCode || prev.phoneCountryCode,
-                                      whatsappNumber: checked ? '' : prev.whatsappNumber || '',
-                                    }));
-                                    setErrors(prev => ({ ...prev, whatsappNumber: undefined }));
-                                  }}
-                                  className="h-4 w-4 cursor-pointer rounded border-[#E2D9CE] accent-[#1F1B18]"
-                                />
-                                <span>
-                                  This phone number is also my WhatsApp number (for confirmation)
-                                </span>
-                              </label>
-
-                              <label className="inline-flex cursor-pointer items-center gap-2 text-xs text-[#6E655F] select-none hover:text-[#1F1B18]">
-                                <input
-                                  type="checkbox"
-                                  checked={Boolean(registerValues.telegramSameAsPhone)}
-                                  onChange={e => toggleTelegramSameAsPhone(e.target.checked)}
-                                  className="h-4 w-4 cursor-pointer rounded border-[#E2D9CE] accent-[#1F1B18]"
-                                />
-                                <span>Also receive live Telegram updates on this phone number</span>
-                              </label>
-                            </div>
+                            <p className="mt-1.5 text-xs text-[#6E655F]">
+                              Used for appointment calls and WhatsApp confirmation.
+                            </p>
 
                             {errors.phoneNumber ? (
                               <p className="mt-1.5 text-xs text-[#9E3B33]" role="alert">
@@ -700,56 +641,6 @@ export const AuthSection: React.FC<AuthSectionProps> = ({
                               </p>
                             ) : null}
                           </div>
-
-                          {registerValues.whatsappSameAsPhone === false ? (
-                            <div>
-                              <label
-                                htmlFor="reg-whatsapp"
-                                className="mb-1.5 block text-xs font-semibold tracking-[0.12em] text-[#1F1B18] uppercase"
-                              >
-                                WhatsApp Number (for Team Confirmation)
-                              </label>
-                              <div className="flex gap-2 sm:gap-2.5">
-                                <GlideSelect
-                                  options={countryCodeOptions}
-                                  value={registerValues.whatsappCountryCode || '+1'}
-                                  onChange={code => updateRegField('whatsappCountryCode', code)}
-                                  showTags={false}
-                                  size="lg"
-                                  radius={10}
-                                  menuWidth={170}
-                                  surfaceColor="#FAF7F2"
-                                  highlightColor="#EFE9E0"
-                                  accentColor="#B68D5E"
-                                  textColor="#1F1B18"
-                                  ariaLabel="WhatsApp country code"
-                                  className="w-28 shrink-0 sm:w-36"
-                                />
-                                <div className="relative flex-1">
-                                  <Phone className="pointer-events-none absolute top-3.5 left-3.5 h-4 w-4 text-[#6E655F]" />
-                                  <input
-                                    id="reg-whatsapp"
-                                    type="tel"
-                                    inputMode="numeric"
-                                    value={registerValues.whatsappNumber || ''}
-                                    onChange={e =>
-                                      updateRegField(
-                                        'whatsappNumber',
-                                        sanitizePhoneDigits(e.target.value)
-                                      )
-                                    }
-                                    placeholder="3105550199"
-                                    className="h-11 w-full rounded-[10px] border border-[#E2D9CE] bg-[#FAF7F2] pr-3.5 pl-10 text-sm text-[#1F1B18] tabular-nums outline-none transition-colors focus:border-[#B68D5E]"
-                                  />
-                                </div>
-                              </div>
-                              {errors.whatsappNumber ? (
-                                <p className="mt-1.5 text-xs text-[#9E3B33]" role="alert">
-                                  {errors.whatsappNumber}
-                                </p>
-                              ) : null}
-                            </div>
-                          ) : null}
 
                           {/* Date of Birth (In-Website AtelierDatePicker) */}
                           <div>
@@ -789,35 +680,6 @@ export const AuthSection: React.FC<AuthSectionProps> = ({
                             ) : errors.dob ? (
                               <p className="mt-1.5 text-xs text-[#9E3B33]" role="alert">
                                 {errors.dob}
-                              </p>
-                            ) : null}
-                          </div>
-
-                          {/* Telegram Username (Inline, No Separate Card or Toggle Options) */}
-                          <div>
-                            <label
-                              htmlFor="reg-telegram"
-                              className="mb-1.5 block text-xs font-semibold tracking-[0.12em] text-[#1F1B18] uppercase"
-                            >
-                              {registerValues.telegramSameAsPhone
-                                ? 'Telegram Username (Optional)'
-                                : 'Telegram Username'}
-                            </label>
-                            <input
-                              id="reg-telegram"
-                              type="text"
-                              value={registerValues.telegramValue}
-                              onChange={e => updateRegField('telegramValue', e.target.value)}
-                              placeholder={
-                                registerValues.telegramSameAsPhone
-                                  ? '@camille_laurent (optional)'
-                                  : '@camille_laurent'
-                              }
-                              className="h-11 w-full rounded-[10px] border border-[#E2D9CE] bg-[#FAF7F2] px-3.5 text-sm text-[#1F1B18] outline-none transition-colors focus:border-[#B68D5E]"
-                            />
-                            {errors.telegramValue ? (
-                              <p className="mt-1.5 text-xs text-[#9E3B33]" role="alert">
-                                {errors.telegramValue}
                               </p>
                             ) : null}
                           </div>
@@ -863,14 +725,14 @@ export const AuthSection: React.FC<AuthSectionProps> = ({
                     <Clock className="mt-0.5 h-4 w-4 shrink-0 text-[#B68D5E]" />
                     <span>
                       <strong className="font-semibold text-[#1F1B18]">4-Hour Self-Editing:</strong>{' '}
-                      Adjust your treatment, preferred time, or Telegram details for 4 hours after booking.
+                      Adjust your treatment, preferred time, or phone number for 4 hours after booking.
                     </span>
                   </li>
                   <li className="flex items-start gap-3">
                     <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-[#B68D5E]" />
                     <span>
                       <strong className="font-semibold text-[#1F1B18]">Verified 18+ Care:</strong>{' '}
-                      Your age, country-coded phone, and Telegram contact pre-fill every booking.
+                      Your age and phone number pre-fill every booking for quick WhatsApp or call confirmation.
                     </span>
                   </li>
                 </ul>

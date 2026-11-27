@@ -88,8 +88,8 @@ export interface ProfileUpsertPayload {
   whatsappNumber?: string;
   dob: string;
   telegramSameAsPhone?: boolean;
-  telegramMethod: TelegramContactMethod;
-  telegramValue: string;
+  telegramMethod?: TelegramContactMethod;
+  telegramValue?: string;
 }
 
 interface TelegramStatusState {
@@ -150,8 +150,8 @@ interface AuthContextValue {
       whatsappCountryCode?: string;
       whatsappNumber?: string;
       telegramSameAsPhone?: boolean;
-      telegramMethod: TelegramContactMethod;
-      telegramValue: string;
+      telegramMethod?: TelegramContactMethod;
+      telegramValue?: string;
     }
   ) => Promise<void>;
   cancelBookingRecord: (bookingId: string) => Promise<void>;
@@ -418,7 +418,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (active) {
             setBotSyncNotice({
               id: `${local.id}_${Date.now()}`,
-              title: 'Booking Cancelled via Telegram',
+              title: 'Booking Cancelled',
               description: `${local.treatmentName} was cancelled.`,
             });
           }
@@ -430,7 +430,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (active) {
             setBotSyncNotice({
               id: `${local.id}_${Date.now()}`,
-              title: 'Timing Updated via Telegram',
+              title: 'Appointment Time Updated',
               description: `${local.treatmentName} rescheduled to ${botBooking.preferredDateTime.replace('T', ' ')}.`,
             });
           }
@@ -772,8 +772,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const bookingId = generateBookingId();
     const chosenTreatment = getTreatmentById(values.treatmentId);
     const treatmentName = chosenTreatment?.name || 'Private Consultation';
-    const effectiveTelegram = resolveEffectiveTelegram(values);
-    const effectiveWhatsApp = resolveEffectiveWhatsApp(values);
+    const effectiveTelegram = resolveEffectiveTelegram({
+      phoneCountryCode: values.phoneCountryCode,
+      phoneNumber: values.phoneNumber,
+    });
+    const effectiveWhatsApp = resolveEffectiveWhatsApp({
+      phoneCountryCode: values.phoneCountryCode,
+      phoneNumber: values.phoneNumber,
+      whatsappSameAsPhone: true,
+    });
     const telegramDeepLink = buildTelegramBotDeepLink(telegramStatus.botUsername, bookingId);
 
     const allowsMessaging = values.messagingConsent !== false;
@@ -809,7 +816,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
       if (resp.ok) {
         const result = await resp.json();
-        serverDispatched = Boolean(result.sent);
+        serverDispatched = Boolean(result.teamNotified || result.sent);
         notifyStatus = serverDispatched ? 'sent' : 'deep_link_ready';
       }
     } catch {
@@ -863,8 +870,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       whatsappCountryCode?: string;
       whatsappNumber?: string;
       telegramSameAsPhone?: boolean;
-      telegramMethod: TelegramContactMethod;
-      telegramValue: string;
+      telegramMethod?: TelegramContactMethod;
+      telegramValue?: string;
     }
   ): Promise<void> => {
     const target = bookings.find(item => item.id === bookingId);
@@ -880,14 +887,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       dob: target.dob,
       phoneCountryCode: patch.phoneCountryCode,
       phoneNumber: patch.phoneNumber,
-      whatsappSameAsPhone: patch.whatsappSameAsPhone,
-      whatsappCountryCode: patch.whatsappCountryCode,
-      whatsappNumber: patch.whatsappNumber,
       treatmentId: patch.treatmentId,
       preferredDateTime: patch.preferredDateTime,
-      telegramSameAsPhone: patch.telegramSameAsPhone,
-      telegramMethod: patch.telegramMethod,
-      telegramValue: patch.telegramValue,
     });
     if (!validation.valid) {
       const firstError = Object.values(validation.errors)[0] || 'Please check updated fields.';
@@ -895,8 +896,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     const chosenTreatment = getTreatmentById(patch.treatmentId);
-    const effectiveTelegram = resolveEffectiveTelegram(patch);
-    const effectiveWhatsApp = resolveEffectiveWhatsApp(patch);
+    const effectiveTelegram = resolveEffectiveTelegram({
+      phoneCountryCode: patch.phoneCountryCode,
+      phoneNumber: patch.phoneNumber,
+    });
+    const effectiveWhatsApp = resolveEffectiveWhatsApp({
+      phoneCountryCode: patch.phoneCountryCode,
+      phoneNumber: patch.phoneNumber,
+      whatsappSameAsPhone: true,
+    });
     const bookingPath = `bookings/${bookingId}`;
 
     try {
@@ -922,6 +930,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         bookingId,
+        isUpdate: true,
         userId: target.userId,
         fullName: target.fullName,
         phoneCountryCode: patch.phoneCountryCode.trim(),
@@ -933,7 +942,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         preferredDateTime: patch.preferredDateTime,
         telegramMethod: effectiveTelegram.method,
         telegramValue: effectiveTelegram.value,
-        chatId: profile?.telegramChatId || undefined,
         createdAtMs: target.createdAtMs,
       }),
     }).catch(() => {});
