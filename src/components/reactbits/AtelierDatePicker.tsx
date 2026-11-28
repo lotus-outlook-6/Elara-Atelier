@@ -5,6 +5,7 @@
  */
 
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Clock } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { CLINIC_CONFIG } from '../../config/clinicConfig';
@@ -132,7 +133,13 @@ export const AtelierDatePicker: React.FC<AtelierDatePickerProps> = ({
 
   const [open, setOpen] = useState(false);
   const [placement, setPlacement] = useState<'bottom' | 'top'>('bottom');
-  const [popoverMaxHeight, setPopoverMaxHeight] = useState<number>(440);
+  const [popoverStyle, setPopoverStyle] = useState<{
+    left: number;
+    top?: number;
+    bottom?: number;
+    width: number;
+    maxHeight: number;
+  }>({ left: 12, top: 100, width: 330, maxHeight: 440 });
   const [cursor, setCursor] = useState<{ year: number; month: number }>(() => {
     if (
       mode === 'datetime' &&
@@ -145,6 +152,7 @@ export const AtelierDatePicker: React.FC<AtelierDatePickerProps> = ({
   });
 
   const rootRef = useRef<HTMLDivElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
 
   // Keep calendar cursor synced when an external value (e.g. profile pre-fill) changes
   useEffect(() => {
@@ -165,24 +173,43 @@ export const AtelierDatePicker: React.FC<AtelierDatePickerProps> = ({
     if (!open) return undefined;
 
     /**
-     * Keep calendar popover within the safe viewport below the fixed top header (max ~80px + 12px margin).
+     * Compute fixed viewport coordinates for the portaled calendar popover so it never clips
+     * inside modal overflow containers or overflows past screen edges.
+     * Inputs: none (reads rootRef bounding rect and window viewport dimensions).
+     * Output: void.
+     * Errors: None.
      */
     const updatePosition = () => {
       if (!rootRef.current) return;
       const rect = rootRef.current.getBoundingClientRect();
-      const headerSafeTop = window.innerWidth >= 768 ? 92 : 76;
       const viewportMargin = 12;
-      const needed = mode === 'datetime' ? 390 : 320;
-      const spaceBelow = Math.max(0, window.innerHeight - rect.bottom - viewportMargin);
-      const spaceAbove = Math.max(0, rect.top - headerSafeTop);
+      const gap = 6;
+      const popWidth = Math.min(330, Math.max(260, window.innerWidth - viewportMargin * 2));
+      const needed = mode === 'datetime' ? 405 : 330;
+
+      const spaceBelow = Math.max(0, window.innerHeight - rect.bottom - viewportMargin - gap);
+      const spaceAbove = Math.max(0, rect.top - viewportMargin - gap);
 
       const shouldFlipTop =
         spaceBelow < needed && (spaceAbove >= needed || spaceAbove > spaceBelow);
       const nextPlacement: 'bottom' | 'top' = shouldFlipTop ? 'top' : 'bottom';
       const availableHeight = nextPlacement === 'top' ? spaceAbove : spaceBelow;
 
+      // Align with left edge of trigger, clamped safely inside viewport margins
+      const clampedLeft = Math.max(
+        viewportMargin,
+        Math.min(rect.left, window.innerWidth - popWidth - viewportMargin)
+      );
+
       setPlacement(nextPlacement);
-      setPopoverMaxHeight(Math.max(220, Math.floor(availableHeight)));
+      setPopoverStyle({
+        left: Math.round(clampedLeft),
+        top: nextPlacement === 'bottom' ? Math.round(rect.bottom + gap) : undefined,
+        bottom:
+          nextPlacement === 'top' ? Math.round(window.innerHeight - rect.top + gap) : undefined,
+        width: Math.round(popWidth),
+        maxHeight: Math.max(240, Math.floor(availableHeight)),
+      });
     };
 
     updatePosition();
@@ -197,18 +224,24 @@ export const AtelierDatePicker: React.FC<AtelierDatePickerProps> = ({
   useEffect(() => {
     if (!open) return undefined;
     const handlePointerDown = (e: PointerEvent) => {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      const insideTrigger = Boolean(rootRef.current && rootRef.current.contains(target));
+      const insidePopover = Boolean(popoverRef.current && popoverRef.current.contains(target));
+      if (!insideTrigger && !insidePopover) {
         setOpen(false);
       }
     };
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false);
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        setOpen(false);
+      }
     };
     document.addEventListener('pointerdown', handlePointerDown, true);
-    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keydown', handleKeyDown, true);
     return () => {
       document.removeEventListener('pointerdown', handlePointerDown, true);
-      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keydown', handleKeyDown, true);
     };
   }, [open]);
 
@@ -347,20 +380,28 @@ export const AtelierDatePicker: React.FC<AtelierDatePickerProps> = ({
         </button>
       )}
 
-      <AnimatePresence>
-        {open ? (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.96, y: placement === 'bottom' ? -6 : 6 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.96, y: placement === 'bottom' ? -4 : 4 }}
-            transition={{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }}
-            className={`absolute left-0 z-30 w-[min(330px,calc(100vw-2.5rem))] overflow-y-auto rounded-xl border border-[#E2D9CE] bg-[#FAF7F2] p-3.5 text-[#1F1B18] [box-shadow:0_12px_32px_color-mix(in_srgb,#1F1B18_14%,transparent)] ${
-              placement === 'bottom' ? 'top-[calc(100%+6px)]' : 'bottom-[calc(100%+6px)]'
-            }`}
-            style={{ maxHeight: `${popoverMaxHeight}px` }}
-            role="dialog"
-            aria-label="Interactive clinic calendar"
-          >
+      {typeof document !== 'undefined'
+        ? createPortal(
+            <AnimatePresence>
+              {open ? (
+                <motion.div
+                  ref={popoverRef}
+                  initial={{ opacity: 0, scale: 0.96, y: placement === 'bottom' ? -6 : 6 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.96, y: placement === 'bottom' ? -4 : 4 }}
+                  transition={{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }}
+                  className="fixed z-[80] overflow-x-hidden overflow-y-auto rounded-xl border border-[#E2D9CE] bg-[#FAF7F2] p-3.5 text-[#1F1B18] [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden [box-shadow:0_12px_32px_color-mix(in_srgb,#1F1B18_14%,transparent)]"
+                  style={{
+                    left: `${popoverStyle.left}px`,
+                    top: popoverStyle.top !== undefined ? `${popoverStyle.top}px` : undefined,
+                    bottom:
+                      popoverStyle.bottom !== undefined ? `${popoverStyle.bottom}px` : undefined,
+                    width: `${popoverStyle.width}px`,
+                    maxHeight: `${popoverStyle.maxHeight}px`,
+                  }}
+                  role="dialog"
+                  aria-label="Interactive clinic calendar"
+                >
             {/* Header: Month & Year selectors via GlideSelect */}
             <div className="flex items-center justify-between gap-1.5 border-b border-[#E2D9CE] pb-2.5">
               <button
@@ -514,9 +555,12 @@ export const AtelierDatePicker: React.FC<AtelierDatePickerProps> = ({
                 </div>
               </div>
             ) : null}
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
+                </motion.div>
+              ) : null}
+            </AnimatePresence>,
+            document.body
+          )
+        : null}
     </div>
   );
 };

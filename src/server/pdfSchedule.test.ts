@@ -73,15 +73,16 @@ test('filterBookingsForDate excludes cancelled visits and sorts chronologically'
   );
 });
 
-test('generatePatientSchedulePdf outputs valid multi-page PDF 1.4 structure with escaped literals', () => {
+test('generatePatientSchedulePdf outputs valid multi-page editorial PDF 1.4 with pricing and escaped literals', () => {
   const manyBookings: ConciergeBookingRecord[] = [];
   for (let i = 1; i <= 15; i += 1) {
     manyBookings.push(
       makeBooking({
         id: `bk_${i}`,
         fullName: i === 1 ? 'Elena (VIP) O’Connor' : `Patient Number ${i}`,
+        phoneNumber: `31055501${String(i).padStart(2, '0')}`,
         whatsappNumber: `31055501${String(i).padStart(2, '0')}`,
-        preferredDateTime: `2026-11-19T${String(9 + Math.floor(i / 2)).padStart(2, '0')}:${i % 2 === 0 ? '30' : '00'}`,
+        preferredDateTime: `2026-11-19T${String(9 + Math.floor(i / 2)).padStart(2, '0')}:${i % 2 === 0 ? '30:00' : '00'}`,
         status: i % 2 === 0 ? 'confirmed' : 'requested',
       })
     );
@@ -102,6 +103,10 @@ test('generatePatientSchedulePdf outputs valid multi-page PDF 1.4 structure with
   assert.match(pdfText, /Page 2 of 2/);
   assert.match(pdfText, /Elena \\\(VIP\\\) O'Connor/);
   assert.match(pdfText, /\+1 3105550101/);
+  assert.match(pdfText, /TOTAL VISITS/);
+  assert.match(pdfText, /EST\. VALUE/);
+  assert.match(pdfText, /From \$240/);
+  assert.match(pdfText, /10:30 AM/);
 
   // Verify xref table points cleanly to exact byte offset of xref header
   const startxrefMatch = /startxref\n(\d+)\n%%EOF/.exec(pdfText);

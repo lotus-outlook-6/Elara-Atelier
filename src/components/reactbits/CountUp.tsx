@@ -22,6 +22,7 @@ interface CountUpProps {
   decimals?: number;
   format?: 'standard' | 'compact';
   trigger?: 'view' | 'load';
+  replayOnView?: boolean;
   replayOnHover?: boolean;
   onStart?: () => void;
   onEnd?: () => void;
@@ -194,6 +195,7 @@ export default function CountUp({
   decimals,
   format = 'standard',
   trigger = 'view',
+  replayOnView = false,
   replayOnHover = false,
   onStart,
   onEnd
@@ -208,8 +210,9 @@ export default function CountUp({
   const valueRef = useRef(startValue);
   const startedRef = useRef(false);
   const runningRef = useRef(false);
+  const playIdRef = useRef(0);
   const [play, setPlay] = useState<Play | null>(null);
-  const isInView = useInView(ref, { once: true, margin: '0px' });
+  const isInView = useInView(ref, { once: !replayOnView, margin: '0px' });
   const active = trigger === 'load' || isInView;
   const compact = format === 'compact';
   const places = decimals ?? Math.max(getDecimalPlaces(from), getDecimalPlaces(to));
@@ -255,16 +258,34 @@ export default function CountUp({
   }, [mode, startValue, formatValue]);
 
   useEffect(() => {
-    if (!active || !startWhen) return;
+    if (!startWhen) return;
+    if (!active) {
+      if (replayOnView && trigger === 'view') {
+        const reducedMotion =
+          typeof window !== 'undefined' &&
+          window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+        if (!reducedMotion) {
+          valueRef.current = startValue;
+          setPlay(null);
+          if (mode === 'count' && textRef.current && latestRef.current) {
+            textRef.current.textContent = latestRef.current.formatValue(startValue);
+          }
+        }
+      }
+      return;
+    }
+
     startedRef.current = true;
-    setPlay(previous => ({
-      id: (previous?.id || 0) + 1,
-      from: valueRef.current,
+    playIdRef.current += 1;
+    const nextId = playIdRef.current;
+    setPlay({
+      id: nextId,
+      from: replayOnView && trigger === 'view' ? startValue : valueRef.current,
       to: endValue,
       spin: false,
       wait: true
-    }));
-  }, [active, startWhen, endValue]);
+    });
+  }, [active, startWhen, endValue, startValue, replayOnView, trigger, mode]);
 
   useEffect(() => {
     const live = latestRef.current;

@@ -3,18 +3,7 @@
 > A full-stack (frontend + backend) demo studio web application built for portfolio purposes—featuring non-surgical facial treatments, cosmetic dentistry, and skin renewal with React, TypeScript, Tailwind CSS, Express, Firebase, and automated Telegram booking notifications.
 
 [![Open Live Project](https://img.shields.io/badge/Open_Live_Project-Elara_Atelier-1F1B18?style=for-the-badge&logoColor=FAF7F2&labelColor=B68D5E)](https://aistudio.google.com/apps/4a09f8e6-265b-4cf0-bd8d-dfa42d7b8f03?showPreview=true&showAssistant=true)
-
----
-
-## About This Project
-
-**Elara Atelier — Aesthetic & Dental Studio** is a **frontend-cum-backend demo site created for portfolio purposes**. It demonstrates how a luxury appointment-based business can combine an editorial, mobile-responsive customer interface with real full-stack infrastructure:
-
-- **Frontend Showcase**: Editorial hero, filterable treatment catalog, interactive before-and-after comparison slider, customizable Porcelain Veneers timeline & pricing preview, weekday-only booking calendar, and a Patient Profile portal with quick-book popups and past-booking archives.
-- **Backend & Database**: Express serverless API (`/api/*`) paired with **Firebase Authentication** and **Cloud Firestore** (including security rules enforcing a 4-hour patient edit/cancel window) plus real-time **Telegram** booking/cancellation updates and automated daily schedule PDFs.
-- **Sample Portfolio Data**: All treatments, studio addresses, pricing estimates, and reviews are sample demonstration content crafted specifically for this portfolio showcase.
-
-👉 **[Open Project Workspace Directly](https://aistudio.google.com/apps/4a09f8e6-265b-4cf0-bd8d-dfa42d7b8f03?showPreview=true&showAssistant=true)**
+[![Clinic Telegram Bot](https://img.shields.io/badge/Telegram_Bot-@ElaraAtelierBot-1F1B18?style=for-the-badge&logo=telegram&logoColor=FAF7F2&labelColor=B68D5E)](https://web.telegram.org/k/#@ElaraAtelierBot)
 
 ---
 
@@ -61,7 +50,7 @@ Adapts cleanly from compact mobile screens to desktop displays with an unclipped
   - Patient profiles and appointments are stored securely in **Firebase Cloud Firestore**.
   - Signed-in patients can view their monthly visit calendar and edit or cancel bookings within a 4-hour post-booking window.
 - **Clinic Notifications**:
-  - Whenever a new booking is made, updates (including treatment details and starting cost) are automatically pushed to **Telegram** so the clinic team is notified immediately.
+  - Whenever a new booking is made, updates (including treatment details and starting cost) are automatically pushed to **Telegram** ([@ElaraAtelierBot](https://web.telegram.org/k/#@ElaraAtelierBot)) so the clinic team is notified immediately.
   - On mornings with scheduled appointments, a single daily booking list is pushed to Telegram (skipped automatically on days with zero bookings).
 - **Legal & Trust Pages**: Includes dedicated Privacy Policy and Terms & Conditions pages detailing Firebase data storage and Vercel hosting.
 
@@ -172,3 +161,26 @@ This project is pre-configured for **Vercel** via `vercel.json`:
 2. Add your environment variables in **Vercel Project Settings → Environment Variables** (`APP_URL` and optional Telegram notification variables).
 3. Add your production Vercel domain under **Firebase Console → Authentication → Settings → Authorized domains** so Google Sign-In works seamlessly in production.
 4. Deploy—Vercel builds the static frontend into `dist/` and routes `/api/*` requests through `api/index.js`.
+
+---
+
+## About This Project
+
+**Elara Atelier — Aesthetic & Dental Studio** is a **frontend-cum-backend demo site created for portfolio purposes**. It demonstrates how a luxury appointment-based business can combine an editorial, mobile-responsive customer interface with real full-stack infrastructure:
+
+- **Frontend Showcase**: Editorial hero, filterable treatment catalog, interactive before-and-after comparison slider, customizable Porcelain Veneers timeline & pricing preview, weekday-only booking calendar, and a Patient Profile portal with quick-book popups and past-booking archives.
+- **Backend & Database**: Express serverless API (`/api/*`) paired with **Firebase Authentication** and **Cloud Firestore** (including security rules enforcing a 4-hour patient edit/cancel window) plus real-time **Telegram** booking/cancellation updates and automated daily schedule PDFs.
+- **Sample Portfolio Data**: All treatments, studio addresses, pricing estimates, and reviews are sample demonstration content crafted specifically for this portfolio showcase.
+
+<p>
+  <a href="https://aistudio.google.com/apps/4a09f8e6-265b-4cf0-bd8d-dfa42d7b8f03?showPreview=true&showAssistant=true">
+    <img src="docs/icons/google-ai-studio.svg" alt="Google AI Studio" width="18" height="18" align="absmiddle" />
+    <strong>&nbsp;Open Project Workspace Directly (Google AI Studio)</strong>
+  </a>
+</p>
+<p>
+  <a href="https://web.telegram.org/k/#@ElaraAtelierBot">
+    <img src="docs/icons/telegram.svg" alt="Telegram" width="18" height="18" align="absmiddle" />
+    <strong>&nbsp;Open Team Telegram Bot (@ElaraAtelierBot)</strong>
+  </a>
+</p>

@@ -73,4 +73,7 @@ export const CLINIC_CONFIG = {
   eodPdfMinute: 30,
   projectShowcaseUrl:
     'https://aistudio.google.com/apps/4a09f8e6-265b-4cf0-bd8d-dfa42d7b8f03?showPreview=true&showAssistant=true',
+  githubRepoUrl:
+    'https://github.com/lotus-outlook-6/Elara-Atelier#interactive-before--after-preview',
+  telegramBotUrl: 'https://web.telegram.org/k/#@ElaraAtelierBot',
 } as const;

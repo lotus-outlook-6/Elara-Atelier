@@ -765,7 +765,7 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
                         {CLINIC_CONFIG.hoursSummary}
                       </span>
                     </div>
-                    <div ref={sliderContainerRef}>
+                    <div ref={sliderContainerRef} className="w-full overflow-hidden">
                       <SlideCommit
                         label="Slide to Confirm"
                         doneLabel="Request Logged"

@@ -22907,6 +22907,7 @@ var CLINIC_CONFIG = {
   phoneDisplay: "+1 (310) 555-0194",
   phoneHref: "tel:+13105550194",
   whatsappNumber: "13105550194",
+  whatsappDefaultMessage: "hi",
   email: "concierge@elara-atelier.com",
   hoursSummary: "Mon\u2013Fri, 10:00 AM \u2013 7:00 PM",
   hoursShort: "Mon\u2013Fri \xB7 10 AM \u2013 7 PM",
@@ -22927,7 +22928,8 @@ var CLINIC_CONFIG = {
   morningDigestHour: 8,
   morningDigestMinute: 30,
   eodPdfHour: 8,
-  eodPdfMinute: 30
+  eodPdfMinute: 30,
+  projectShowcaseUrl: "https://aistudio.google.com/apps/4a09f8e6-265b-4cf0-bd8d-dfa42d7b8f03?showPreview=true&showAssistant=true"
 };
 
 // src/server/conciergeStore.ts
@@ -23457,299 +23459,6 @@ var ConciergeStore = class {
   }
 };
 
-// src/server/pdfSchedule.ts
-function getClinicDateTimeParts(referenceDate = /* @__PURE__ */ new Date(), timeZone = CLINIC_CONFIG.clinicTimeZone) {
-  const formatter = new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false
-  });
-  const parts = formatter.formatToParts(referenceDate);
-  const pick = (type) => {
-    const val = parts.find((p) => p.type === type)?.value || "0";
-    return Number(val);
-  };
-  const year = pick("year");
-  const month = pick("month");
-  const day = pick("day");
-  const rawHour = pick("hour");
-  const hour = rawHour === 24 ? 0 : rawHour;
-  const minute = pick("minute");
-  const localNoonUtc = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
-  const weekday = localNoonUtc.getUTCDay();
-  const isoDate = `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-  return { year, month, day, hour, minute, weekday, isoDate };
-}
-function getNextClinicDateIso(referenceDate = /* @__PURE__ */ new Date(), timeZone = CLINIC_CONFIG.clinicTimeZone, skipWeekends = true) {
-  const localNow = getClinicDateTimeParts(referenceDate, timeZone);
-  let cursor = new Date(Date.UTC(localNow.year, localNow.month - 1, localNow.day + 1, 12, 0, 0));
-  let skippedWeekend = false;
-  if (skipWeekends) {
-    while (cursor.getUTCDay() === 0 || cursor.getUTCDay() === 6) {
-      skippedWeekend = true;
-      cursor = new Date(
-        Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth(), cursor.getUTCDate() + 1, 12, 0, 0)
-      );
-    }
-  }
-  const yyyy = cursor.getUTCFullYear();
-  const mm = String(cursor.getUTCMonth() + 1).padStart(2, "0");
-  const dd = String(cursor.getUTCDate()).padStart(2, "0");
-  const targetIsoDate = `${yyyy}-${mm}-${dd}`;
-  const displayDateLabel = cursor.toLocaleDateString("en-US", {
-    timeZone: "UTC",
-    weekday: "long",
-    month: "short",
-    day: "numeric",
-    year: "numeric"
-  });
-  return {
-    targetIsoDate,
-    displayDateLabel,
-    skippedWeekend
-  };
-}
-function filterBookingsForDate(bookings, targetIsoDate) {
-  return bookings.filter((b) => b.status !== "cancelled" && b.preferredDateTime.startsWith(targetIsoDate)).slice().sort((a, b) => a.preferredDateTime.localeCompare(b.preferredDateTime));
-}
-function formatTimeShort(isoDateTime) {
-  const match = /T(\d{2}):(\d{2})$/.exec(isoDateTime.trim());
-  if (!match) return isoDateTime || "TBD";
-  const hour24 = Number(match[1]);
-  const minute = match[2];
-  const suffix = hour24 >= 12 ? "PM" : "AM";
-  const hour12 = hour24 % 12 || 12;
-  return `${hour12}:${minute} ${suffix}`;
-}
-function toPdfLiteral(raw, maxChars = 120) {
-  const normalized = raw.replace(/[–—]/g, "-").replace(/[•·]/g, "|").replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/[^\x20-\x7E]/g, " ").replace(/\s+/g, " ").trim();
-  const clipped = normalized.length > maxChars ? `${normalized.slice(0, Math.max(1, maxChars - 3))}...` : normalized;
-  return clipped.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
-}
-function wrapTextLines(raw, maxCharsPerLine, maxLines = 2) {
-  const clean = raw.replace(/\s+/g, " ").trim();
-  if (!clean) return ["-"];
-  const words = clean.split(" ");
-  const lines = [];
-  let current = "";
-  for (const word of words) {
-    const candidate = current ? `${current} ${word}` : word;
-    if (candidate.length <= maxCharsPerLine) {
-      current = candidate;
-    } else {
-      if (current) lines.push(current);
-      if (lines.length >= maxLines) break;
-      current = word.slice(0, maxCharsPerLine);
-    }
-  }
-  if (current && lines.length < maxLines) {
-    lines.push(current);
-  }
-  if (lines.length === maxLines && clean.length > lines.join(" ").length + 2) {
-    const last = lines[maxLines - 1];
-    lines[maxLines - 1] = last.length > maxCharsPerLine - 3 ? `${last.slice(0, maxCharsPerLine - 3)}...` : `${last}...`;
-  }
-  return lines;
-}
-function pdfText(ops, fontKey, fontSize, x, y, text, rgb = [0.12, 0.11, 0.09], maxChars = 120) {
-  ops.push(
-    `${rgb[0].toFixed(2)} ${rgb[1].toFixed(2)} ${rgb[2].toFixed(2)} rg`,
-    `BT /${fontKey} ${fontSize} Tf 1 0 0 1 ${x.toFixed(1)} ${y.toFixed(1)} Tm (${toPdfLiteral(text, maxChars)}) Tj ET`
-  );
-}
-function generatePatientSchedulePdf(input) {
-  const clinicName = input.clinicName || CLINIC_CONFIG.fullTitle;
-  const clinicAddress = input.clinicAddress || `${CLINIC_CONFIG.addressLine1}, ${CLINIC_CONFIG.addressLine2}`;
-  const dateLabel = input.displayDateLabel || input.targetDateIso;
-  const sortedBookings = filterBookingsForDate(input.bookings, input.targetDateIso);
-  const generatedLabel = input.generatedAtLabel || `${(/* @__PURE__ */ new Date()).toLocaleString("en-US", { timeZone: CLINIC_CONFIG.clinicTimeZone })} PT`;
-  const rowsPerPage = 13;
-  const totalPages = Math.max(1, Math.ceil(sortedBookings.length / rowsPerPage));
-  const pageStreams = [];
-  for (let pageIdx = 0; pageIdx < totalPages; pageIdx += 1) {
-    const ops = [];
-    const pageRows = sortedBookings.slice(pageIdx * rowsPerPage, (pageIdx + 1) * rowsPerPage);
-    ops.push("0.94 0.91 0.88 rg 36 690 540 68 re f");
-    ops.push("0.71 0.55 0.37 RG 0.9 w 36 690 540 68 re S");
-    pdfText(ops, "F2", 15, 50, 735, clinicName.toUpperCase(), [0.12, 0.11, 0.09], 80);
-    pdfText(ops, "F1", 10, 50, 717, `Next-Day Patient Consultation Schedule  |  ${clinicAddress}`, [0.43, 0.4, 0.37], 95);
-    pdfText(
-      ops,
-      "F2",
-      10,
-      50,
-      700,
-      `Visit Date: ${dateLabel}   |   Confirmed/Requested Patients: ${sortedBookings.length}`,
-      [0.12, 0.11, 0.09],
-      95
-    );
-    const headerY = 660;
-    ops.push("0.12 0.11 0.09 rg 36 654 540 22 re f");
-    pdfText(ops, "F2", 8.5, 44, headerY + 1, "#", [0.98, 0.97, 0.95], 6);
-    pdfText(ops, "F2", 8.5, 64, headerY + 1, "TIME", [0.98, 0.97, 0.95], 12);
-    pdfText(ops, "F2", 8.5, 122, headerY + 1, "PATIENT", [0.98, 0.97, 0.95], 24);
-    pdfText(ops, "F2", 8.5, 240, headerY + 1, "TREATMENT", [0.98, 0.97, 0.95], 34);
-    pdfText(ops, "F2", 8.5, 396, headerY + 1, "PHONE", [0.98, 0.97, 0.95], 22);
-    pdfText(ops, "F2", 8.5, 498, headerY + 1, "STATUS", [0.98, 0.97, 0.95], 16);
-    if (pageRows.length === 0) {
-      ops.push("0.98 0.97 0.95 rg 36 594 540 48 re f");
-      ops.push("0.89 0.85 0.81 RG 0.6 w 36 594 540 48 re S");
-      pdfText(
-        ops,
-        "F1",
-        10.5,
-        50,
-        614,
-        `No active patient consultations are scheduled for ${dateLabel}.`,
-        [0.43, 0.4, 0.37],
-        90
-      );
-    } else {
-      let rowTop = 650;
-      const rowHeight = 44;
-      pageRows.forEach((booking, localIdx) => {
-        const globalIdx = pageIdx * rowsPerPage + localIdx + 1;
-        const rowBottom = rowTop - rowHeight;
-        if (localIdx % 2 === 1) {
-          ops.push(`0.97 0.95 0.93 rg 36 ${rowBottom.toFixed(1)} 540 ${rowHeight} re f`);
-        }
-        ops.push(`0.89 0.85 0.81 RG 0.5 w 36 ${rowBottom.toFixed(1)} m 576 ${rowBottom.toFixed(1)} l S`);
-        const primaryY = rowTop - 16;
-        const secondaryY = rowTop - 30;
-        pdfText(ops, "F2", 9, 44, primaryY, String(globalIdx), [0.43, 0.4, 0.37], 6);
-        pdfText(ops, "F2", 9, 64, primaryY, formatTimeShort(booking.preferredDateTime), [0.12, 0.11, 0.09], 12);
-        const nameLines = wrapTextLines(booking.fullName || "Guest", 20, 2);
-        pdfText(ops, "F2", 9, 122, primaryY, nameLines[0], [0.12, 0.11, 0.09], 24);
-        if (nameLines[1]) {
-          pdfText(ops, "F1", 8, 122, secondaryY, nameLines[1], [0.43, 0.4, 0.37], 26);
-        }
-        const treatmentLines = wrapTextLines(booking.treatmentName || "Consultation", 27, 2);
-        pdfText(ops, "F1", 8.5, 240, primaryY, treatmentLines[0], [0.12, 0.11, 0.09], 30);
-        if (treatmentLines[1]) {
-          pdfText(ops, "F1", 8, 240, secondaryY, treatmentLines[1], [0.43, 0.4, 0.37], 30);
-        }
-        const phoneCode = booking.phoneCountryCode || booking.whatsappCountryCode || "+1";
-        const phoneNum = booking.phoneNumber || booking.whatsappNumber || "";
-        const phoneDisplay = phoneNum ? `${phoneCode} ${phoneNum}` : "Not set";
-        pdfText(ops, "F2", 8.5, 396, primaryY, phoneDisplay, [0.12, 0.11, 0.09], 20);
-        pdfText(
-          ops,
-          "F1",
-          7.5,
-          396,
-          secondaryY,
-          booking.messagingConsent === false ? "Phone Call Only" : "WhatsApp & Call",
-          [0.43, 0.4, 0.37],
-          22
-        );
-        const statusRgb = booking.status === "confirmed" ? [0.29, 0.42, 0.31] : [0.71, 0.55, 0.37];
-        pdfText(ops, "F2", 8.5, 498, primaryY, booking.status.toUpperCase(), statusRgb, 14);
-        pdfText(ops, "F1", 7, 498, secondaryY, booking.id.slice(0, 14), [0.43, 0.4, 0.37], 16);
-        rowTop = rowBottom;
-      });
-    }
-    ops.push("0.89 0.85 0.81 RG 0.5 w 36 48 m 576 48 l S");
-    pdfText(
-      ops,
-      "F1",
-      8,
-      36,
-      34,
-      `Elara Atelier Clinical Team Roster  |  Generated: ${generatedLabel}`,
-      [0.43, 0.4, 0.37],
-      95
-    );
-    pdfText(
-      ops,
-      "F2",
-      8,
-      516,
-      34,
-      `Page ${pageIdx + 1} of ${totalPages}`,
-      [0.43, 0.4, 0.37],
-      20
-    );
-    pageStreams.push(ops.join("\n"));
-  }
-  const objects = [];
-  const pageObjNums = [];
-  for (let i = 0; i < pageStreams.length; i += 1) {
-    const pageObjNum = 5 + i * 2;
-    const contentObjNum = 6 + i * 2;
-    pageObjNums.push(pageObjNum);
-  }
-  objects.push(`1 0 obj
-<< /Type /Catalog /Pages 2 0 R >>
-endobj
-`);
-  objects.push(
-    `2 0 obj
-<< /Type /Pages /Kids [${pageObjNums.map((n) => `${n} 0 R`).join(" ")}] /Count ${pageObjNums.length} >>
-endobj
-`
-  );
-  objects.push(`3 0 obj
-<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
-endobj
-`);
-  objects.push(`4 0 obj
-<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>
-endobj
-`);
-  for (let i = 0; i < pageStreams.length; i += 1) {
-    const pageObjNum = 5 + i * 2;
-    const contentObjNum = 6 + i * 2;
-    const streamStr = pageStreams[i];
-    const streamLen = Buffer.byteLength(streamStr, "utf8");
-    objects.push(
-      `${pageObjNum} 0 obj
-<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents ${contentObjNum} 0 R >>
-endobj
-`
-    );
-    objects.push(
-      `${contentObjNum} 0 obj
-<< /Length ${streamLen} >>
-stream
-${streamStr}
-endstream
-endobj
-`
-    );
-  }
-  const header = "%PDF-1.4\n%\xE2\xE3\xCF\xD3\n";
-  const chunks = [Buffer.from(header, "binary")];
-  let byteOffset = chunks[0].length;
-  const offsets = [0];
-  for (const objStr of objects) {
-    offsets.push(byteOffset);
-    const objBuf = Buffer.from(objStr, "utf8");
-    chunks.push(objBuf);
-    byteOffset += objBuf.length;
-  }
-  const xrefOffset = byteOffset;
-  const xrefLines = [`xref
-0 ${offsets.length}
-0000000000 65535 f 
-`];
-  for (let i = 1; i < offsets.length; i += 1) {
-    xrefLines.push(`${String(offsets[i]).padStart(10, "0")} 00000 n 
-`);
-  }
-  const trailer = `trailer
-<< /Size ${offsets.length} /Root 1 0 R >>
-startxref
-${xrefOffset}
-%%EOF
-`;
-  chunks.push(Buffer.from(xrefLines.join("") + trailer, "utf8"));
-  return Buffer.concat(chunks);
-}
-
 // src/data/clinicData.ts
 var TREATMENT_CATEGORIES = [
   "Facial Aesthetics",
@@ -23863,6 +23572,654 @@ var TREATMENTS = [
     colSpan: 2
   }
 ];
+
+// src/server/pdfSchedule.ts
+var PALETTE = {
+  ivory: [0.98, 0.969, 0.949],
+  // #FAF7F2
+  linen: [0.937, 0.914, 0.878],
+  // #EFE9E0
+  linenRowAlt: [0.957, 0.937, 0.906],
+  // #F4EFE7
+  stone: [0.886, 0.851, 0.808],
+  // #E2D9CE
+  espresso: [0.122, 0.106, 0.094],
+  // #1F1B18
+  espressoCard: [0.173, 0.149, 0.133],
+  // #2C2622
+  taupe: [0.431, 0.396, 0.373],
+  // #6E655F
+  sandMuted: [0.76, 0.72, 0.67],
+  // #C2B8AB
+  champagne: [0.714, 0.553, 0.369],
+  // #B68D5E
+  champagneSoft: [0.847, 0.729, 0.58],
+  // #D8BA94
+  champagneDark: [0.56, 0.415, 0.245],
+  // #8F6A3F
+  champagneTint: [0.965, 0.933, 0.886],
+  // #F6EEE2
+  sage: [0.294, 0.42, 0.314],
+  // #4B6B50
+  sageDark: [0.225, 0.35, 0.25],
+  // #395940
+  sageTint: [0.914, 0.945, 0.918]
+  // #E9F1EA
+};
+function getClinicDateTimeParts(referenceDate = /* @__PURE__ */ new Date(), timeZone = CLINIC_CONFIG.clinicTimeZone) {
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  });
+  const parts = formatter.formatToParts(referenceDate);
+  const pick = (type) => {
+    const val = parts.find((p) => p.type === type)?.value || "0";
+    return Number(val);
+  };
+  const year = pick("year");
+  const month = pick("month");
+  const day = pick("day");
+  const rawHour = pick("hour");
+  const hour = rawHour === 24 ? 0 : rawHour;
+  const minute = pick("minute");
+  const localNoonUtc = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+  const weekday = localNoonUtc.getUTCDay();
+  const isoDate = `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  return { year, month, day, hour, minute, weekday, isoDate };
+}
+function getNextClinicDateIso(referenceDate = /* @__PURE__ */ new Date(), timeZone = CLINIC_CONFIG.clinicTimeZone, skipWeekends = true) {
+  const localNow = getClinicDateTimeParts(referenceDate, timeZone);
+  let cursor = new Date(Date.UTC(localNow.year, localNow.month - 1, localNow.day + 1, 12, 0, 0));
+  let skippedWeekend = false;
+  if (skipWeekends) {
+    while (cursor.getUTCDay() === 0 || cursor.getUTCDay() === 6) {
+      skippedWeekend = true;
+      cursor = new Date(
+        Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth(), cursor.getUTCDate() + 1, 12, 0, 0)
+      );
+    }
+  }
+  const yyyy = cursor.getUTCFullYear();
+  const mm = String(cursor.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(cursor.getUTCDate()).padStart(2, "0");
+  const targetIsoDate = `${yyyy}-${mm}-${dd}`;
+  const displayDateLabel = cursor.toLocaleDateString("en-US", {
+    timeZone: "UTC",
+    weekday: "long",
+    month: "short",
+    day: "numeric",
+    year: "numeric"
+  });
+  return {
+    targetIsoDate,
+    displayDateLabel,
+    skippedWeekend
+  };
+}
+function filterBookingsForDate(bookings, targetIsoDate) {
+  return bookings.filter((b) => b.status !== "cancelled" && b.preferredDateTime.startsWith(targetIsoDate)).slice().sort((a, b) => a.preferredDateTime.localeCompare(b.preferredDateTime));
+}
+function formatTimeShort(isoDateTime) {
+  const match = /T(\d{2}):(\d{2})(?::\d{2})?/.exec(isoDateTime.trim());
+  if (!match) return isoDateTime || "TBD";
+  const hour24 = Number(match[1]);
+  const minute = match[2];
+  const suffix = hour24 >= 12 ? "PM" : "AM";
+  const hour12 = hour24 % 12 || 12;
+  return `${hour12}:${minute} ${suffix}`;
+}
+function resolveTreatmentCatalogItem(treatmentId, treatmentName) {
+  if (treatmentId) {
+    const byId = TREATMENTS.find((item) => item.id === treatmentId);
+    if (byId) return byId;
+  }
+  if (treatmentName) {
+    const normalized = treatmentName.trim().toLowerCase();
+    const byExact = TREATMENTS.find((item) => item.name.toLowerCase() === normalized);
+    if (byExact) return byExact;
+    const byPartial = TREATMENTS.find(
+      (item) => item.name.toLowerCase().includes(normalized) || normalized.includes(item.name.toLowerCase())
+    );
+    if (byPartial) return byPartial;
+  }
+  return void 0;
+}
+function parseStartingPriceDollars(priceLabel) {
+  if (!priceLabel) return 0;
+  const digits = priceLabel.replace(/[^0-9.]/g, "");
+  const parsed = Number(digits);
+  return Number.isFinite(parsed) ? Math.round(parsed) : 0;
+}
+function formatCurrencyUsd(amount) {
+  if (amount <= 0) return "$0";
+  return `$${amount.toLocaleString("en-US")}`;
+}
+function toPdfLiteral(raw, maxChars = 120) {
+  const normalized = raw.replace(/[–—]/g, "-").replace(/[•·]/g, "|").replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/[^\x20-\x7E]/g, " ").replace(/\s+/g, " ").trim();
+  const clipped = normalized.length > maxChars ? `${normalized.slice(0, Math.max(1, maxChars - 3))}...` : normalized;
+  return clipped.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
+}
+function wrapTextLines(raw, maxCharsPerLine, maxLines = 2) {
+  const clean = raw.replace(/\s+/g, " ").trim();
+  if (!clean) return ["-"];
+  const words = clean.split(" ");
+  const lines = [];
+  let current = "";
+  for (const word of words) {
+    const candidate = current ? `${current} ${word}` : word;
+    if (candidate.length <= maxCharsPerLine) {
+      current = candidate;
+    } else {
+      if (current) lines.push(current);
+      if (lines.length >= maxLines) break;
+      current = word.slice(0, maxCharsPerLine);
+    }
+  }
+  if (current && lines.length < maxLines) {
+    lines.push(current);
+  }
+  if (lines.length === maxLines && clean.length > lines.join(" ").length + 2) {
+    const last = lines[maxLines - 1];
+    lines[maxLines - 1] = last.length > maxCharsPerLine - 3 ? `${last.slice(0, maxCharsPerLine - 3)}...` : `${last}...`;
+  }
+  return lines;
+}
+function fmtRgb(rgb) {
+  return `${rgb[0].toFixed(3)} ${rgb[1].toFixed(3)} ${rgb[2].toFixed(3)}`;
+}
+function roundedRectPath(x, y, w, h, r) {
+  const rad = Math.min(r, w / 2, h / 2);
+  const k = rad * 0.5523;
+  const x0 = x;
+  const x1 = x + w;
+  const y0 = y;
+  const y1 = y + h;
+  const f = (n) => n.toFixed(2);
+  return [
+    `${f(x0 + rad)} ${f(y0)} m`,
+    `${f(x1 - rad)} ${f(y0)} l`,
+    `${f(x1 - rad + k)} ${f(y0)} ${f(x1)} ${f(y0 + rad - k)} ${f(x1)} ${f(y0 + rad)} c`,
+    `${f(x1)} ${f(y1 - rad)} l`,
+    `${f(x1)} ${f(y1 - rad + k)} ${f(x1 - rad + k)} ${f(y1)} ${f(x1 - rad)} ${f(y1)} c`,
+    `${f(x0 + rad)} ${f(y1)} l`,
+    `${f(x0 + rad - k)} ${f(y1)} ${f(x0)} ${f(y1 - rad + k)} ${f(x0)} ${f(y1 - rad)} c`,
+    `${f(x0)} ${f(y0 + rad)} l`,
+    `${f(x0)} ${f(y0 + rad - k)} ${f(x0 + rad - k)} ${f(y0)} ${f(x0 + rad)} ${f(y0)} c`,
+    "h"
+  ].join(" ");
+}
+function topRoundedRectPath(x, y, w, h, r) {
+  const rad = Math.min(r, w / 2, h / 2);
+  const k = rad * 0.5523;
+  const x0 = x;
+  const x1 = x + w;
+  const y0 = y;
+  const y1 = y + h;
+  const f = (n) => n.toFixed(2);
+  return [
+    `${f(x0)} ${f(y0)} m`,
+    `${f(x1)} ${f(y0)} l`,
+    `${f(x1)} ${f(y1 - rad)} l`,
+    `${f(x1)} ${f(y1 - rad + k)} ${f(x1 - rad + k)} ${f(y1)} ${f(x1 - rad)} ${f(y1)} c`,
+    `${f(x0 + rad)} ${f(y1)} l`,
+    `${f(x0 + rad - k)} ${f(y1)} ${f(x0)} ${f(y1 - rad + k)} ${f(x0)} ${f(y1 - rad)} c`,
+    `${f(x0)} ${f(y0)} l`,
+    "h"
+  ].join(" ");
+}
+function pdfRoundedBox(ops, x, y, w, h, r, fillRgb, strokeRgb, lineWidth = 0.75) {
+  const path3 = roundedRectPath(x, y, w, h, r);
+  if (fillRgb && strokeRgb) {
+    ops.push(`${fmtRgb(fillRgb)} rg ${fmtRgb(strokeRgb)} RG ${lineWidth.toFixed(2)} w ${path3} B`);
+  } else if (fillRgb) {
+    ops.push(`${fmtRgb(fillRgb)} rg ${path3} f`);
+  } else if (strokeRgb) {
+    ops.push(`${fmtRgb(strokeRgb)} RG ${lineWidth.toFixed(2)} w ${path3} S`);
+  }
+}
+function pdfText(ops, fontKey, fontSize, x, y, text, rgb = PALETTE.espresso, maxChars = 120, charSpacing = 0) {
+  const tcOp = charSpacing !== 0 ? `${charSpacing.toFixed(2)} Tc ` : "0 Tc ";
+  ops.push(
+    `${fmtRgb(rgb)} rg`,
+    `BT /${fontKey} ${fontSize.toFixed(1)} Tf ${tcOp}1 0 0 1 ${x.toFixed(1)} ${y.toFixed(1)} Tm (${toPdfLiteral(text, maxChars)}) Tj ET`
+  );
+}
+function drawBrandMonogram(ops, x, y, size) {
+  pdfRoundedBox(ops, x, y, size, size, 6, PALETTE.ivory, PALETTE.champagne, 1);
+  pdfRoundedBox(ops, x + 3, y + 3, size - 6, size - 6, 4, void 0, PALETTE.stone, 0.5);
+  const fontSize = size >= 40 ? 18 : 13.5;
+  const textX = size >= 40 ? x + 9.5 : x + 7.5;
+  const textY = size >= 40 ? y + 16.5 : y + 11;
+  pdfText(ops, "F4", fontSize, textX, textY, "EA", PALETTE.espresso, 4, 0.5);
+  const barY = size >= 40 ? y + 10.5 : y + 7;
+  ops.push(
+    `${fmtRgb(PALETTE.champagne)} RG 0.9 w ${(x + 11).toFixed(1)} ${barY.toFixed(1)} m ${(x + size - 11).toFixed(1)} ${barY.toFixed(1)} l S`
+  );
+}
+function drawPrimaryMasthead(ops, clinicName, clinicAddress, dateLabel) {
+  pdfRoundedBox(ops, 36, 664, 540, 98, 10, PALETTE.espresso, PALETTE.champagne, 0.85);
+  ops.push(`${fmtRgb(PALETTE.champagne)} RG 0.6 w 52 678 m 378 678 l S`);
+  drawBrandMonogram(ops, 52, 692, 46);
+  pdfText(
+    ops,
+    "F2",
+    7.2,
+    112,
+    741,
+    "BEVERLY HILLS  |  AESTHETIC & DENTAL STUDIO",
+    PALETTE.champagneSoft,
+    60,
+    1.2
+  );
+  const primaryTitle = clinicName.includes("\u2014") ? clinicName.split("\u2014")[0].trim().toUpperCase() : clinicName.split("-")[0].trim().toUpperCase();
+  pdfText(ops, "F4", 20, 112, 718, primaryTitle || "ELARA ATELIER", PALETTE.ivory, 36, 1.4);
+  pdfText(ops, "F5", 10.5, 112, 701, "Daily Patient Consultation Schedule", PALETTE.stone, 55);
+  pdfText(
+    ops,
+    "F1",
+    7.6,
+    112,
+    684,
+    `${clinicAddress}  |  ${CLINIC_CONFIG.phoneDisplay}`,
+    PALETTE.sandMuted,
+    75
+  );
+  pdfRoundedBox(ops, 392, 680, 168, 66, 7, PALETTE.espressoCard, PALETTE.champagne, 0.6);
+  pdfText(ops, "F2", 6.8, 404, 732, "SCHEDULED CLINIC DAY", PALETTE.champagneSoft, 30, 1);
+  pdfText(ops, "F4", 11.5, 404, 712, dateLabel, PALETTE.ivory, 26);
+  pdfText(
+    ops,
+    "F1",
+    7.4,
+    404,
+    695,
+    "Mon-Fri  |  10:00 AM - 7:00 PM PT",
+    PALETTE.sandMuted,
+    34
+  );
+}
+function drawContinuationMasthead(ops, dateLabel, pageNumber, totalPages) {
+  pdfRoundedBox(ops, 36, 708, 540, 54, 8, PALETTE.espresso, PALETTE.champagne, 0.75);
+  drawBrandMonogram(ops, 48, 719, 32);
+  pdfText(ops, "F4", 14, 92, 737, "ELARA ATELIER", PALETTE.ivory, 30, 1.1);
+  pdfText(
+    ops,
+    "F5",
+    9.2,
+    92,
+    721,
+    `Daily Patient Consultation Schedule (Continued)  |  ${dateLabel}`,
+    PALETTE.stone,
+    72
+  );
+  pdfText(
+    ops,
+    "F2",
+    8,
+    500,
+    732,
+    `PAGE ${pageNumber} OF ${totalPages}`,
+    PALETTE.champagneSoft,
+    18,
+    0.7
+  );
+}
+function drawKpiSummaryRow(ops, totalCount, confirmedCount, pendingCount, estimatedRevenueLabel) {
+  const cards = [
+    {
+      label: "TOTAL VISITS",
+      value: String(totalCount),
+      caption: totalCount === 1 ? "Active consultation" : "Active consultations",
+      valueRgb: PALETTE.espresso,
+      accentRgb: PALETTE.champagne
+    },
+    {
+      label: "CONFIRMED",
+      value: String(confirmedCount),
+      caption: "Verified by clinic team",
+      valueRgb: PALETTE.sageDark,
+      accentRgb: PALETTE.sage
+    },
+    {
+      label: "PENDING",
+      value: String(pendingCount),
+      caption: "Awaiting confirmation",
+      valueRgb: PALETTE.champagneDark,
+      accentRgb: PALETTE.champagne
+    },
+    {
+      label: "EST. VALUE",
+      value: estimatedRevenueLabel,
+      caption: "Starting treatment fees",
+      valueRgb: PALETTE.espresso,
+      accentRgb: PALETTE.champagne
+    }
+  ];
+  const cardWidth = 127.5;
+  const gap = 10;
+  const cardY = 592;
+  const cardH = 58;
+  cards.forEach((card, index) => {
+    const x = 36 + index * (cardWidth + gap);
+    pdfRoundedBox(ops, x, cardY, cardWidth, cardH, 7, PALETTE.linen, PALETTE.stone, 0.75);
+    ops.push(
+      `${fmtRgb(card.accentRgb)} rg ${(x + 12).toFixed(1)} ${(cardY + cardH - 2.5).toFixed(1)} 28 2.5 re f`
+    );
+    pdfText(ops, "F2", 6.8, x + 12, cardY + 42, card.label, PALETTE.taupe, 22, 0.9);
+    pdfText(ops, "F4", 18, x + 12, cardY + 21, card.value, card.valueRgb, 16);
+    pdfText(ops, "F1", 7.3, x + 12, cardY + 8, card.caption, PALETTE.taupe, 26);
+  });
+}
+function drawTableHeader(ops, headerBottomY) {
+  const headerH = 26;
+  const path3 = topRoundedRectPath(36, headerBottomY, 540, headerH, 7);
+  ops.push(`${fmtRgb(PALETTE.espresso)} rg ${path3} f`);
+  const textY = headerBottomY + 9.5;
+  pdfText(ops, "F2", 7.5, 45, textY, "#", PALETTE.champagneSoft, 4, 0.5);
+  pdfText(ops, "F2", 7.5, 67, textY, "TIME", PALETTE.ivory, 10, 0.9);
+  pdfText(ops, "F2", 7.5, 134, textY, "PATIENT", PALETTE.ivory, 18, 0.9);
+  pdfText(ops, "F2", 7.5, 254, textY, "TREATMENT & COST", PALETTE.ivory, 24, 0.9);
+  pdfText(ops, "F2", 7.5, 404, textY, "PHONE", PALETTE.ivory, 18, 0.9);
+  pdfText(ops, "F2", 7.5, 504, textY, "STATUS", PALETTE.ivory, 14, 0.9);
+}
+function drawPageFooter(ops, generatedLabel, pageNumber, totalPages) {
+  ops.push(`${fmtRgb(PALETTE.stone)} RG 0.6 w 36 48 m 576 48 l S`);
+  ops.push(`${fmtRgb(PALETTE.champagne)} rg 36 47.4 36 1.2 re f`);
+  pdfText(
+    ops,
+    "F1",
+    7.6,
+    36,
+    33,
+    `Elara Atelier Clinical Team Roster (Confidential)  |  Generated: ${generatedLabel}`,
+    PALETTE.taupe,
+    92
+  );
+  pdfText(
+    ops,
+    "F2",
+    7.8,
+    532,
+    33,
+    `Page ${pageNumber} of ${totalPages}`,
+    PALETTE.espresso,
+    18
+  );
+}
+function generatePatientSchedulePdf(input) {
+  const clinicName = input.clinicName || CLINIC_CONFIG.fullTitle;
+  const clinicAddress = input.clinicAddress || `${CLINIC_CONFIG.addressLine1}, ${CLINIC_CONFIG.addressLine2}`;
+  const dateLabel = input.displayDateLabel || input.targetDateIso;
+  const sortedBookings = filterBookingsForDate(input.bookings, input.targetDateIso);
+  const generatedLabel = input.generatedAtLabel || `${(/* @__PURE__ */ new Date()).toLocaleString("en-US", { timeZone: CLINIC_CONFIG.clinicTimeZone })} PT`;
+  const confirmedCount = sortedBookings.filter((b) => b.status === "confirmed").length;
+  const pendingCount = sortedBookings.length - confirmedCount;
+  const totalEstimatedDollars = sortedBookings.reduce((sum, booking) => {
+    const meta = resolveTreatmentCatalogItem(booking.treatmentId, booking.treatmentName);
+    return sum + parseStartingPriceDollars(meta?.startingPrice);
+  }, 0);
+  const firstPageCap = 10;
+  const nextPageCap = 13;
+  const pageChunks = [];
+  if (sortedBookings.length === 0) {
+    pageChunks.push([]);
+  } else {
+    pageChunks.push(sortedBookings.slice(0, firstPageCap));
+    for (let cursor = firstPageCap; cursor < sortedBookings.length; cursor += nextPageCap) {
+      pageChunks.push(sortedBookings.slice(cursor, cursor + nextPageCap));
+    }
+  }
+  const totalPages = pageChunks.length;
+  const pageStreams = [];
+  for (let pageIdx = 0; pageIdx < totalPages; pageIdx += 1) {
+    const ops = [];
+    const pageRows = pageChunks[pageIdx];
+    const isFirstPage = pageIdx === 0;
+    const globalStartIndex = isFirstPage ? 0 : firstPageCap + (pageIdx - 1) * nextPageCap;
+    ops.push(`${fmtRgb(PALETTE.ivory)} rg 0 0 612 792 re f`);
+    ops.push(`${fmtRgb(PALETTE.champagne)} rg 0 788.5 612 3.5 re f`);
+    if (isFirstPage) {
+      drawPrimaryMasthead(ops, clinicName, clinicAddress, dateLabel);
+      drawKpiSummaryRow(
+        ops,
+        sortedBookings.length,
+        confirmedCount,
+        pendingCount,
+        formatCurrencyUsd(totalEstimatedDollars)
+      );
+      pdfText(ops, "F2", 7.8, 36, 571, "APPOINTMENT ROSTER", PALETTE.champagneDark, 30, 1.1);
+      pdfText(
+        ops,
+        "F1",
+        7.5,
+        408,
+        571,
+        "Chronological order  |  Cancelled visits excluded",
+        PALETTE.taupe,
+        54
+      );
+    } else {
+      drawContinuationMasthead(ops, dateLabel, pageIdx + 1, totalPages);
+    }
+    const tableHeaderBottomY = isFirstPage ? 536 : 668;
+    drawTableHeader(ops, tableHeaderBottomY);
+    if (pageRows.length === 0) {
+      const emptyBoxH = 88;
+      const emptyBoxBottom = tableHeaderBottomY - emptyBoxH;
+      ops.push(
+        `${fmtRgb(PALETTE.linen)} rg 36 ${emptyBoxBottom.toFixed(1)} 540 ${emptyBoxH} re f`
+      );
+      ops.push(
+        `${fmtRgb(PALETTE.stone)} RG 0.75 w 36 ${emptyBoxBottom.toFixed(1)} 540 ${emptyBoxH} re S`
+      );
+      pdfText(
+        ops,
+        "F4",
+        12.5,
+        54,
+        emptyBoxBottom + 52,
+        "Quiet Studio Day",
+        PALETTE.espresso,
+        40
+      );
+      pdfText(
+        ops,
+        "F1",
+        9.5,
+        54,
+        emptyBoxBottom + 32,
+        `No active patient consultations are scheduled for ${dateLabel}.`,
+        PALETTE.taupe,
+        90
+      );
+      pdfText(
+        ops,
+        "F1",
+        8,
+        54,
+        emptyBoxBottom + 16,
+        "New bookings or re-bookings confirmed online will appear automatically in updated PDF sheets.",
+        PALETTE.taupe,
+        96
+      );
+    } else {
+      const rowHeight = 46;
+      let rowTop = tableHeaderBottomY;
+      pageRows.forEach((booking, localIdx) => {
+        const globalIdx = globalStartIndex + localIdx + 1;
+        const rowBottom = rowTop - rowHeight;
+        const rowFill = localIdx % 2 === 1 ? PALETTE.linenRowAlt : PALETTE.ivory;
+        ops.push(`${fmtRgb(rowFill)} rg 36 ${rowBottom.toFixed(1)} 540 ${rowHeight} re f`);
+        ops.push(
+          `${fmtRgb(PALETTE.stone)} RG 0.5 w 36 ${rowBottom.toFixed(1)} m 576 ${rowBottom.toFixed(1)} l S`
+        );
+        const primaryY = rowTop - 18.5;
+        const secondaryY = rowTop - 32.5;
+        pdfText(
+          ops,
+          "F2",
+          8.5,
+          44,
+          primaryY,
+          String(globalIdx).padStart(2, "0"),
+          PALETTE.taupe,
+          4
+        );
+        const timeStr = formatTimeShort(booking.preferredDateTime);
+        pdfRoundedBox(ops, 65, rowTop - 25.5, 58, 18.5, 4, PALETTE.linen, PALETTE.stone, 0.5);
+        pdfText(ops, "F2", 8.2, 72.5, primaryY - 0.5, timeStr, PALETTE.espresso, 10);
+        const nameLines = wrapTextLines(booking.fullName || "Guest Patient", 20, 2);
+        pdfText(ops, "F4", 9.8, 134, primaryY, nameLines[0], PALETTE.espresso, 22);
+        if (nameLines[1]) {
+          pdfText(ops, "F4", 8.8, 134, secondaryY + 1, nameLines[1], PALETTE.espresso, 24);
+        } else {
+          pdfText(
+            ops,
+            "F1",
+            7.1,
+            134,
+            secondaryY,
+            `Ref: ${booking.id.slice(0, 16)}`,
+            PALETTE.taupe,
+            24
+          );
+        }
+        const catalogMeta = resolveTreatmentCatalogItem(
+          booking.treatmentId,
+          booking.treatmentName
+        );
+        const treatmentLabel = booking.treatmentName || catalogMeta?.name || "Consultation";
+        const treatmentPrimary = treatmentLabel.length > 31 ? `${treatmentLabel.slice(0, 28).trimEnd()}...` : treatmentLabel;
+        pdfText(ops, "F2", 8.2, 254, primaryY, treatmentPrimary, PALETTE.espresso, 32);
+        const pricePart = catalogMeta?.startingPrice ? `From ${catalogMeta.startingPrice}` : "Consult Quote";
+        const durationPart = catalogMeta?.duration ? `  |  ${catalogMeta.duration}` : "";
+        pdfText(
+          ops,
+          "F1",
+          7.6,
+          254,
+          secondaryY,
+          `${pricePart}${durationPart}`,
+          PALETTE.champagneDark,
+          30
+        );
+        const phoneCode = booking.phoneCountryCode || booking.whatsappCountryCode || "+1";
+        const phoneNum = booking.phoneNumber || booking.whatsappNumber || "";
+        const phoneDisplay = phoneNum ? `${phoneCode} ${phoneNum}` : "Not provided";
+        pdfText(ops, "F2", 8.4, 404, primaryY, phoneDisplay, PALETTE.espresso, 19);
+        pdfText(
+          ops,
+          "F1",
+          7.4,
+          404,
+          secondaryY,
+          booking.messagingConsent === false ? "Phone Call Only" : "WhatsApp & Call",
+          PALETTE.taupe,
+          20
+        );
+        const isConfirmed = booking.status === "confirmed";
+        const badgeFill = isConfirmed ? PALETTE.sageTint : PALETTE.champagneTint;
+        const badgeBorder = isConfirmed ? PALETTE.sage : PALETTE.champagne;
+        const badgeTextRgb = isConfirmed ? PALETTE.sageDark : PALETTE.champagneDark;
+        const badgeLabel = isConfirmed ? "CONFIRMED" : "PENDING";
+        const badgeTextX = isConfirmed ? 510 : 515.5;
+        pdfRoundedBox(ops, 502, rowTop - 25.5, 64, 18.5, 4, badgeFill, badgeBorder, 0.65);
+        pdfText(ops, "F2", 7.1, badgeTextX, primaryY - 0.5, badgeLabel, badgeTextRgb, 12, 0.5);
+        if (nameLines[1]) {
+          pdfText(
+            ops,
+            "F1",
+            6.8,
+            502,
+            secondaryY - 1,
+            booking.id.slice(0, 14),
+            PALETTE.taupe,
+            15
+          );
+        }
+        rowTop = rowBottom;
+      });
+      const tableBodyHeight = pageRows.length * rowHeight;
+      const tableBottomY = tableHeaderBottomY - tableBodyHeight;
+      ops.push(
+        `${fmtRgb(PALETTE.stone)} RG 0.75 w 36 ${tableHeaderBottomY.toFixed(1)} m 36 ${tableBottomY.toFixed(1)} l 576 ${tableBottomY.toFixed(1)} l 576 ${tableHeaderBottomY.toFixed(1)} l S`
+      );
+    }
+    drawPageFooter(ops, generatedLabel, pageIdx + 1, totalPages);
+    pageStreams.push(ops.join("\n"));
+  }
+  const objects = [];
+  const pageObjNums = [];
+  for (let i = 0; i < pageStreams.length; i += 1) {
+    pageObjNums.push(8 + i * 2);
+  }
+  objects.push("1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n");
+  objects.push(
+    `2 0 obj
+<< /Type /Pages /Kids [${pageObjNums.map((n) => `${n} 0 R`).join(" ")}] /Count ${pageObjNums.length} >>
+endobj
+`
+  );
+  objects.push("3 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n");
+  objects.push("4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>\nendobj\n");
+  objects.push("5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Times-Roman >>\nendobj\n");
+  objects.push("6 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Times-Bold >>\nendobj\n");
+  objects.push("7 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Times-Italic >>\nendobj\n");
+  const fontResources = "/Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R /F4 6 0 R /F5 7 0 R >>";
+  for (let i = 0; i < pageStreams.length; i += 1) {
+    const pageObjNum = 8 + i * 2;
+    const contentObjNum = 9 + i * 2;
+    const streamStr = pageStreams[i];
+    const streamLen = Buffer.byteLength(streamStr, "utf8");
+    objects.push(
+      `${pageObjNum} 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << ${fontResources} >> /Contents ${contentObjNum} 0 R >>
+endobj
+`
+    );
+    objects.push(
+      `${contentObjNum} 0 obj
+<< /Length ${streamLen} >>
+stream
+${streamStr}
+endstream
+endobj
+`
+    );
+  }
+  const header = "%PDF-1.4\n%\xE2\xE3\xCF\xD3\n";
+  const chunks = [Buffer.from(header, "binary")];
+  let byteOffset = chunks[0].length;
+  const offsets = [0];
+  for (const objStr of objects) {
+    offsets.push(byteOffset);
+    const objBuf = Buffer.from(objStr, "utf8");
+    chunks.push(objBuf);
+    byteOffset += objBuf.length;
+  }
+  const xrefOffset = byteOffset;
+  const xrefLines = [`xref
+0 ${offsets.length}
+0000000000 65535 f 
+`];
+  for (let i = 1; i < offsets.length; i += 1) {
+    xrefLines.push(`${String(offsets[i]).padStart(10, "0")} 00000 n 
+`);
+  }
+  const trailer = `trailer
+<< /Size ${offsets.length} /Root 1 0 R >>
+startxref
+${xrefOffset}
+%%EOF
+`;
+  chunks.push(Buffer.from(xrefLines.join("") + trailer, "utf8"));
+  return Buffer.concat(chunks);
+}
 
 // src/utils/booking.ts
 function formatPreferredDateTime(raw) {

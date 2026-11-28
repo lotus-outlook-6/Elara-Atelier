@@ -78,7 +78,7 @@ export const AboutProjectSection: React.FC<AboutProjectSectionProps> = ({
   onOpenPrivacy,
   onOpenTerms,
 }) => {
-  const projectUrl = CLINIC_CONFIG.projectShowcaseUrl;
+  const projectUrl = CLINIC_CONFIG.githubRepoUrl;
 
   return (
     <section

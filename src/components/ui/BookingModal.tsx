@@ -14,6 +14,8 @@ import {
   formatPreferredDateTime,
   getDefaultUpcomingBookingDateTime,
   getTreatmentById,
+  isPastCalendarDate,
+  isStudioWeekday,
   resolveEffectiveWhatsApp,
   sanitizeNameInput,
   sanitizePhoneDigits,
@@ -29,14 +31,15 @@ export interface BookingModalProps {
   open: boolean;
   mode: 'new' | 'rebook';
   prefillBooking?: BookingRecord | null;
+  initialIsoDate?: string | null;
   onClose: () => void;
   onBooked: (summary: { patientName: string; treatmentName: string; isRebook: boolean }) => void;
 }
 
 /**
- * Build initial form values from either a cancelled/past booking being re-booked
- * or the signed-in patient's saved Firestore profile.
- * Inputs: mode ('new' | 'rebook'), optional prefillBooking, optional profile defaults.
+ * Build initial form values from either a cancelled/past booking being re-booked,
+ * an explicitly selected calendar weekday, or the signed-in patient's saved Firestore profile.
+ * Inputs: mode ('new' | 'rebook'), optional prefillBooking, optional profile defaults, optional initialIsoDate.
  * Output: BookingFormValues ready for the modal form.
  * Errors: None.
  */
@@ -48,9 +51,19 @@ function buildInitialModalValues(
     phoneCountryCode: string;
     phoneNumber: string;
     dob: string;
-  } | null
+  } | null,
+  initialIsoDate?: string | null
 ): BookingFormValues {
-  const defaultDateTime = getDefaultUpcomingBookingDateTime();
+  const hasValidInitialDate =
+    Boolean(initialIsoDate) &&
+    /^\d{4}-\d{2}-\d{2}$/.test(initialIsoDate as string) &&
+    isStudioWeekday(initialIsoDate as string) &&
+    !isPastCalendarDate(initialIsoDate as string);
+
+  const defaultDateTime =
+    mode === 'new' && hasValidInitialDate
+      ? `${initialIsoDate}T11:00`
+      : getDefaultUpcomingBookingDateTime();
 
   if (mode === 'rebook' && prefillBooking) {
     const allowsMessaging =
@@ -87,7 +100,7 @@ function buildInitialModalValues(
 
 /**
  * Accessible Consultation Request popup dialog rendered over the Patient Profile page.
- * Inputs: open, mode, prefillBooking, onClose, onBooked.
+ * Inputs: open, mode, prefillBooking, initialIsoDate, onClose, onBooked.
  * Output: Rendered modal dialog or null when closed.
  * Errors: Displays inline validation and submission error messages inside the dialog.
  */
@@ -95,12 +108,13 @@ export const BookingModal: React.FC<BookingModalProps> = ({
   open,
   mode,
   prefillBooking,
+  initialIsoDate,
   onClose,
   onBooked,
 }) => {
   const { profile, createBookingRecord } = useAuth();
   const [values, setValues] = useState<BookingFormValues>(() =>
-    buildInitialModalValues(mode, prefillBooking, profile)
+    buildInitialModalValues(mode, prefillBooking, profile, initialIsoDate)
   );
   const [errors, setErrors] = useState<Partial<Record<keyof BookingFormValues, string>>>({});
   const [status, setStatus] = useState<'idle' | 'submitting' | 'confirmed'>('idle');
@@ -110,15 +124,15 @@ export const BookingModal: React.FC<BookingModalProps> = ({
   const sliderContainerRef = useRef<HTMLDivElement>(null);
   const [sliderWidth, setSliderWidth] = useState<number>(320);
 
-  // Reset form fields cleanly whenever the modal opens or target prefill changes
+  // Reset form fields cleanly whenever the modal opens or target prefill/calendar date changes
   useEffect(() => {
     if (!open) return;
-    setValues(buildInitialModalValues(mode, prefillBooking, profile));
+    setValues(buildInitialModalValues(mode, prefillBooking, profile, initialIsoDate));
     setErrors({});
     setSubmitError(null);
     setConfirmedDetails(null);
     setStatus('idle');
-  }, [open, mode, prefillBooking, profile]);
+  }, [open, mode, prefillBooking, profile, initialIsoDate]);
 
   // Close cleanly on Escape key and prevent background scroll while modal is open
   useEffect(() => {
@@ -301,8 +315,8 @@ export const BookingModal: React.FC<BookingModalProps> = ({
           </div>
         </div>
 
-        {/* Scrollable Body */}
-        <div className="overflow-y-auto px-5 py-5 sm:px-7 sm:py-6">
+        {/* Scrollable Body (strictly overflow-x-hidden with hidden scrollbars so SlideCommit never shows a scrollbar) */}
+        <div className="overflow-x-hidden overflow-y-auto px-5 py-5 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden sm:px-7 sm:py-6">
           {mode === 'rebook' && status === 'idle' ? (
             <div className="mb-5 rounded-xl border border-[#B68D5E]/60 bg-[#FAF7F2] p-3.5 text-xs leading-relaxed text-[#1F1B18]">
               <div className="flex items-start gap-2.5">
@@ -634,7 +648,7 @@ export const BookingModal: React.FC<BookingModalProps> = ({
                     {CLINIC_CONFIG.hoursSummary}
                   </span>
                 </div>
-                <div ref={sliderContainerRef}>
+                <div ref={sliderContainerRef} className="w-full overflow-hidden">
                   <SlideCommit
                     label="Slide to Confirm"
                     doneLabel="Request Logged"

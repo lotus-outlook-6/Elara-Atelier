@@ -62,6 +62,7 @@ export const TrustMetricsSection: React.FC = () => {
                         suffix={metric.suffix}
                         duration={1.6}
                         trigger="view"
+                        replayOnView
                         style={{ fontVariantNumeric: 'lining-nums proportional-nums' }}
                       />
                     </div>

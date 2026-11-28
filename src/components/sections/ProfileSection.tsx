@@ -686,7 +686,7 @@ export const ProfileSection: React.FC<ProfileSectionProps> = ({
                     data-testid="past-bookings-scroll-list"
                     className={
                       pastBookings.length > 3
-                        ? 'mt-4 max-h-[420px] space-y-3 overflow-y-auto pr-1.5'
+                        ? 'mt-4 max-h-[420px] space-y-3 overflow-x-hidden overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden'
                         : 'mt-4 space-y-3'
                     }
                   >
@@ -922,7 +922,7 @@ export const ProfileSection: React.FC<ProfileSectionProps> = ({
                     data-testid="consultation-bookings-scroll-list"
                     className={
                       displayedBookings.length > 3
-                        ? 'mt-5 max-h-[590px] space-y-4 overflow-y-auto pr-1.5'
+                        ? 'mt-5 max-h-[590px] space-y-4 overflow-x-hidden overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden'
                         : 'mt-5 space-y-4'
                     }
                   >
@@ -1207,6 +1207,7 @@ export const ProfileSection: React.FC<ProfileSectionProps> = ({
         open={bookingModal.open}
         mode={bookingModal.mode}
         prefillBooking={bookingModal.prefillBooking}
+        initialIsoDate={selectedIsoDate}
         onClose={() => setBookingModal(prev => ({ ...prev, open: false }))}
         onBooked={summary => {
           onNotify(
