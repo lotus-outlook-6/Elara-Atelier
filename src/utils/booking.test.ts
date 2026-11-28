@@ -21,6 +21,7 @@ import {
   getRemainingEditWindow,
   getTodayIsoDate,
   getTreatmentById,
+  isPastBookingDateTime,
   isPastCalendarDate,
   isStudioWeekday,
   resolveEffectiveTelegram,
@@ -499,3 +500,13 @@ test('validateBookingForm and buildWhatsAppBookingUrl support Phone Call Only op
   const decoded = decodeURIComponent(url.split('?text=')[1]);
   assert.match(decoded, /Phone Call Only/i);
 });
+
+test('isPastBookingDateTime accurately archives elapsed appointments and keeps upcoming ones active', () => {
+  const nowMs = new Date(2026, 10, 28, 15, 0, 0).getTime(); // Nov 28, 2026 3:00 PM local
+  assert.equal(isPastBookingDateTime('2026-11-27T11:00', nowMs), true);
+  assert.equal(isPastBookingDateTime('2026-11-28T14:30', nowMs), true);
+  assert.equal(isPastBookingDateTime('2026-11-28T16:00', nowMs), false);
+  assert.equal(isPastBookingDateTime('2026-12-04T14:00', nowMs), false);
+  assert.equal(isPastBookingDateTime('', nowMs), false);
+});
+

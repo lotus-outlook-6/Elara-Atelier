@@ -39,11 +39,20 @@ export interface ConciergeBookingRecord {
   telegramMethod: ConciergeTelegramMethod;
   telegramValue: string;
   status: ConciergeBookingStatus;
+  cancelNote?: string;
+  cancelledBy?: 'team' | 'patient';
   createdAtMs: number;
   updatedAtMs: number;
   botUpdatedAtMs?: number;
   updatedVia?: 'web' | 'telegram_bot';
   chatId?: string;
+}
+
+export interface PendingTeamCancelRecord {
+  bookingId: string;
+  cardMessageId?: number;
+  createdAtMs: number;
+  fallbackBooking?: ConciergeBookingRecord;
 }
 
 export interface ConciergeMessageRecord {
@@ -72,6 +81,7 @@ export interface PersistedConciergeData {
   messages: ConciergeMessageRecord[];
   teamChatIds: string[];
   lastDailyPdfSentForDate?: string;
+  pendingTeamCancels?: Record<string, PendingTeamCancelRecord>;
 }
 
 /**
@@ -134,6 +144,7 @@ export class ConciergeStore {
     chats: {},
     messages: [],
     teamChatIds: [],
+    pendingTeamCancels: {},
   };
 
   /**
@@ -162,6 +173,10 @@ export class ConciergeStore {
             typeof parsed.lastDailyPdfSentForDate === 'string'
               ? parsed.lastDailyPdfSentForDate
               : undefined,
+          pendingTeamCancels:
+            parsed.pendingTeamCancels && typeof parsed.pendingTeamCancels === 'object'
+              ? parsed.pendingTeamCancels
+              : {},
         };
       }
     } catch {
@@ -171,6 +186,7 @@ export class ConciergeStore {
         chats: {},
         messages: [],
         teamChatIds: [],
+        pendingTeamCancels: {},
       };
     }
   }
@@ -229,12 +245,18 @@ export class ConciergeStore {
       if (incoming.userId && incoming.userId !== userId) continue;
       const existing = this.data.bookings[incoming.id];
 
-      if (
+      const botHasAuthoritativeChange =
         existing &&
         existing.updatedVia === 'telegram_bot' &&
-        (existing.botUpdatedAtMs || 0) > (incoming.updatedAtMs || 0)
-      ) {
-        // Keep the fresher bot edit and ask the web client to reconcile it to Firestore
+        (
+          (existing.botUpdatedAtMs || 0) > (incoming.updatedAtMs || 0) ||
+          (existing.status === 'cancelled' && incoming.status !== 'cancelled') ||
+          (existing.status === 'confirmed' && incoming.status === 'requested') ||
+          (Boolean(existing.cancelNote) && existing.cancelNote !== incoming.cancelNote)
+        );
+
+      if (botHasAuthoritativeChange && !(incoming.status === 'cancelled' && existing.status !== 'cancelled')) {
+        // Keep the fresher bot edit (including cancelNote) and ask the web client to reconcile it to Firestore
         botUpdatedBookings.push(existing);
         continue;
       }
@@ -254,7 +276,10 @@ export class ConciergeStore {
       }
 
       this.data.bookings[incoming.id] = {
+        ...existing,
         ...incoming,
+        cancelNote: incoming.cancelNote ?? existing?.cancelNote,
+        cancelledBy: incoming.cancelledBy ?? existing?.cancelledBy,
         userId,
         chatId: matchedChat || undefined,
       };
@@ -717,14 +742,60 @@ export class ConciergeStore {
   }
 
   /**
+   * Store a pending cancellation-note prompt for a Team Bot chat so the team's next message
+   * becomes the mandatory cancellation reason for that booking.
+   * Inputs: teamChatId string, PendingTeamCancelRecord entry.
+   * Output: void.
+   * Errors: None.
+   */
+  setPendingTeamCancel(teamChatId: string, entry: PendingTeamCancelRecord): void {
+    const clean = String(teamChatId || '').trim();
+    if (!clean) return;
+    if (!this.data.pendingTeamCancels) {
+      this.data.pendingTeamCancels = {};
+    }
+    this.data.pendingTeamCancels[clean] = entry;
+    this.saveToDisk();
+  }
+
+  /**
+   * Retrieve an active pending cancellation-note prompt for a Team Bot chat, if present.
+   * Inputs: teamChatId string.
+   * Output: PendingTeamCancelRecord or null.
+   * Errors: None.
+   */
+  getPendingTeamCancel(teamChatId: string): PendingTeamCancelRecord | null {
+    const clean = String(teamChatId || '').trim();
+    if (!clean || !this.data.pendingTeamCancels) return null;
+    return this.data.pendingTeamCancels[clean] || null;
+  }
+
+  /**
+   * Clear any pending cancellation-note prompt for a Team Bot chat.
+   * Inputs: teamChatId string.
+   * Output: void.
+   * Errors: None.
+   */
+  clearPendingTeamCancel(teamChatId: string): void {
+    const clean = String(teamChatId || '').trim();
+    if (!clean || !this.data.pendingTeamCancels) return;
+    if (this.data.pendingTeamCancels[clean]) {
+      delete this.data.pendingTeamCancels[clean];
+      this.saveToDisk();
+    }
+  }
+
+  /**
    * Update a booking's confirmation or cancellation status initiated by the clinical team from the Team Bot.
-   * Inputs: bookingId string, next status ('confirmed' | 'cancelled'), optional nowMs.
+   * Inputs: bookingId string, next status ('confirmed' | 'cancelled'), optional nowMs, optional cancelNote.
    * Output: { ok: true, booking } or { ok: false, error }.
+   * Errors: Returns structured { ok: false, error } if booking is missing or already cancelled when confirming.
    */
   updateBookingStatusFromTeam(
     bookingId: string,
     status: 'confirmed' | 'cancelled',
-    nowMs = Date.now()
+    nowMs = Date.now(),
+    cancelNote?: string
   ): { ok: true; booking: ConciergeBookingRecord } | { ok: false; error: string } {
     const booking = this.data.bookings[bookingId];
     if (!booking) {
@@ -735,6 +806,13 @@ export class ConciergeStore {
     }
 
     booking.status = status;
+    if (status === 'cancelled') {
+      const cleanedNote = cancelNote?.trim().slice(0, 500);
+      if (cleanedNote) {
+        booking.cancelNote = cleanedNote;
+      }
+      booking.cancelledBy = 'team';
+    }
     booking.updatedAtMs = nowMs;
     booking.botUpdatedAtMs = nowMs;
     booking.updatedVia = 'telegram_bot';

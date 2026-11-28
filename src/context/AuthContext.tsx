@@ -75,6 +75,7 @@ export interface BookingRecord {
   telegramValue: string;
   telegramNotifyStatus: 'pending_bot_start' | 'queued' | 'sent' | 'deep_link_ready';
   status: 'requested' | 'confirmed' | 'cancelled';
+  cancelNote?: string;
   createdAtMs: number;
   updatedAtMs: number;
 }
@@ -343,6 +344,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 : 'pending_bot_start',
             status:
               d.status === 'confirmed' || d.status === 'cancelled' ? d.status : 'requested',
+            cancelNote:
+              typeof d.cancelNote === 'string' && d.cancelNote.trim()
+                ? d.cancelNote.trim()
+                : undefined,
             createdAtMs: timestampToMs(d.createdAt),
             updatedAtMs: timestampToMs(d.updatedAt),
           };
@@ -373,13 +378,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       id: string;
       preferredDateTime: string;
       status: BookingRecord['status'];
+      cancelNote?: string;
       treatmentName?: string;
     }) => {
       const local = bookings.find(item => item.id === botBooking.id);
       if (!local) return;
+      const incomingCancelNote = botBooking.cancelNote?.trim() || undefined;
       if (
         local.preferredDateTime === botBooking.preferredDateTime &&
-        local.status === botBooking.status
+        local.status === botBooking.status &&
+        (incomingCancelNote || '') === (local.cancelNote || '')
       ) {
         return;
       }
@@ -397,12 +405,39 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             description: `${local.treatmentName} is now confirmed for ${botBooking.preferredDateTime.replace('T', ' ')}.`,
           });
         }
-        if (canEditBooking(local.createdAtMs, Date.now(), local.status)) {
-          updateDoc(doc(db, 'bookings', local.id), {
-            status: 'confirmed',
-            updatedAt: serverTimestamp(),
-          }).catch(() => {});
+        updateDoc(doc(db, 'bookings', local.id), {
+          status: 'confirmed',
+          updatedAt: serverTimestamp(),
+        }).catch(() => {});
+        return;
+      }
+
+      if (botBooking.status === 'cancelled' && local.status !== 'cancelled') {
+        if (active) {
+          setBookings(prev =>
+            prev.map(item =>
+              item.id === local.id
+                ? {
+                    ...item,
+                    status: 'cancelled',
+                    ...(incomingCancelNote ? { cancelNote: incomingCancelNote } : {}),
+                  }
+                : item
+            )
+          );
+          setBotSyncNotice({
+            id: `${local.id}_${Date.now()}`,
+            title: 'Booking Cancelled by Clinic Team',
+            description: incomingCancelNote
+              ? `${local.treatmentName}: ${incomingCancelNote}`
+              : `${local.treatmentName} was cancelled. You can re-book anytime from your Profile.`,
+          });
         }
+        updateDoc(doc(db, 'bookings', local.id), {
+          status: 'cancelled',
+          ...(incomingCancelNote ? { cancelNote: incomingCancelNote } : {}),
+          updatedAt: serverTimestamp(),
+        }).catch(() => {});
         return;
       }
 
@@ -410,19 +445,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       const bookingPath = `bookings/${local.id}`;
       try {
-        if (botBooking.status === 'cancelled') {
-          await updateDoc(doc(db, 'bookings', local.id), {
-            status: 'cancelled',
-            updatedAt: serverTimestamp(),
-          });
-          if (active) {
-            setBotSyncNotice({
-              id: `${local.id}_${Date.now()}`,
-              title: 'Booking Cancelled',
-              description: `${local.treatmentName} was cancelled.`,
-            });
-          }
-        } else if (local.preferredDateTime !== botBooking.preferredDateTime) {
+        if (local.preferredDateTime !== botBooking.preferredDateTime) {
           await updateDoc(doc(db, 'bookings', local.id), {
             preferredDateTime: botBooking.preferredDateTime,
             updatedAt: serverTimestamp(),
@@ -476,6 +499,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               telegramMethod: b.telegramMethod,
               telegramValue: b.telegramValue,
               status: b.status,
+              cancelNote: b.cancelNote,
               createdAtMs: b.createdAtMs,
               updatedAtMs: b.updatedAtMs,
             })),
@@ -488,6 +512,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             id: string;
             preferredDateTime: string;
             status: BookingRecord['status'];
+            cancelNote?: string;
             treatmentName?: string;
           }>;
         };
@@ -542,6 +567,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     void syncWithConcierge().then(() => loadConciergeMessages());
 
+    const handleWindowFocus = () => {
+      if (active) {
+        void syncWithConcierge();
+      }
+    };
+    window.addEventListener('focus', handleWindowFocus);
+
     let source: EventSource | null = null;
     if (typeof EventSource !== 'undefined') {
       source = new EventSource('/api/telegram/events');
@@ -554,6 +586,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               id: string;
               preferredDateTime: string;
               status: BookingRecord['status'];
+              cancelNote?: string;
               treatmentName?: string;
             };
             message?: ConciergeChatMessage;
@@ -585,6 +618,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     return () => {
       active = false;
+      window.removeEventListener('focus', handleWindowFocus);
       source?.close();
     };
   }, [authReady, user, profile, profileLoading, bookings, bookingsLoading, linkedTelegramChatId]);
@@ -948,8 +982,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   /**
-   * Cancel an active booking within the 4-hour post-creation window.
+   * Cancel an active booking within the 4-hour post-creation window and notify the clinical Team Bot
+   * so team alerts and schedule PDFs immediately exclude the cancelled appointment.
    * Inputs: bookingId string.
+   * Output: Promise<void>.
+   * Errors: Throws if booking is missing, edit window expired, or Firestore update fails.
    */
   const cancelBookingRecord = async (bookingId: string): Promise<void> => {
     const target = bookings.find(item => item.id === bookingId);
@@ -969,6 +1006,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, bookingPath);
     }
+
+    const hasMessagingConsent = Boolean(target.whatsappNumber);
+    fetch('/api/telegram/notify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        bookingId: target.id,
+        isCancelled: true,
+        userId: target.userId,
+        fullName: target.fullName,
+        phoneCountryCode: target.phoneCountryCode,
+        phoneNumber: target.phoneNumber,
+        messagingConsent: hasMessagingConsent,
+        whatsappCountryCode: target.whatsappCountryCode || target.phoneCountryCode,
+        whatsappNumber: target.whatsappNumber || target.phoneNumber,
+        phone: `${target.phoneCountryCode} ${target.phoneNumber}`,
+        treatmentId: target.treatmentId,
+        treatmentName: target.treatmentName,
+        preferredDateTime: target.preferredDateTime,
+        telegramMethod: target.telegramMethod,
+        telegramValue: target.telegramValue,
+        createdAtMs: target.createdAtMs,
+      }),
+    }).catch(() => {});
   };
 
   /**

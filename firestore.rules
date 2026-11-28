@@ -132,6 +132,7 @@ service cloud.firestore {
           'telegramValue',
           'telegramNotifyStatus',
           'status',
+          'cancelNote',
           'createdAt',
           'updatedAt'
         ])
@@ -150,6 +151,7 @@ service cloud.firestore {
         && isValidTelegram(data.telegramMethod, data.telegramValue)
         && data.telegramNotifyStatus in ['pending_bot_start', 'queued', 'sent', 'deep_link_ready']
         && data.status in ['requested', 'confirmed', 'cancelled']
+        && (!('cancelNote' in data) || (data.cancelNote is string && data.cancelNote.size() <= 500))
         && data.createdAt is timestamp
         && data.updatedAt is timestamp;
     }
@@ -205,7 +207,6 @@ service cloud.firestore {
         && isValidBooking(incoming())
         && existing().userId == request.auth.uid
         && existing().status != 'cancelled'
-        && request.time <= existing().createdAt + duration.value(4, 'h')
         && incoming().id == existing().id
         && incoming().userId == existing().userId
         && incoming().fullName == existing().fullName
@@ -213,9 +214,10 @@ service cloud.firestore {
         && incoming().createdAt == existing().createdAt
         && incoming().updatedAt == request.time
         && (
-          // Action: Edit appointment details within 4-hour window
+          // Action: Edit appointment details within strict 4-hour window
           (
-            incoming().status == existing().status
+            request.time <= existing().createdAt + duration.value(4, 'h')
+            && incoming().status == existing().status
             && incoming().diff(existing()).affectedKeys().hasOnly([
               'treatmentId',
               'treatmentName',
@@ -241,11 +243,26 @@ service cloud.firestore {
             ])
           )
           ||
-          // Action: Cancel appointment within 4-hour window (terminal state)
+          // Action: Patient self-cancel within strict 4-hour window (terminal state)
           (
-            incoming().status == 'cancelled'
+            request.time <= existing().createdAt + duration.value(4, 'h')
+            && incoming().status == 'cancelled'
             && incoming().diff(existing()).affectedKeys().hasOnly([
               'status',
+              'updatedAt'
+            ])
+          )
+          ||
+          // Action: Sync clinic team cancellation with mandatory cancelNote (terminal state)
+          (
+            incoming().status == 'cancelled'
+            && 'cancelNote' in incoming()
+            && incoming().cancelNote is string
+            && incoming().cancelNote.size() >= 1
+            && incoming().cancelNote.size() <= 500
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'status',
+              'cancelNote',
               'updatedAt'
             ])
           )

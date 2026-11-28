@@ -48,6 +48,7 @@ export const CLINIC_CONFIG = {
   phoneDisplay: '+1 (310) 555-0194',
   phoneHref: 'tel:+13105550194',
   whatsappNumber: '13105550194',
+  whatsappDefaultMessage: 'hi',
   email: 'concierge@elara-atelier.com',
   hoursSummary: 'Mon–Fri, 10:00 AM – 7:00 PM',
   hoursShort: 'Mon–Fri · 10 AM – 7 PM',
@@ -70,4 +71,6 @@ export const CLINIC_CONFIG = {
   morningDigestMinute: 30,
   eodPdfHour: 8,
   eodPdfMinute: 30,
+  projectShowcaseUrl:
+    'https://aistudio.google.com/apps/4a09f8e6-265b-4cf0-bd8d-dfa42d7b8f03?showPreview=true&showAssistant=true',
 } as const;

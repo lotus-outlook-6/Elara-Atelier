@@ -7,7 +7,6 @@
 import interiorImg from '../assets/images/atelier_card_interior_1794636246346.jpg';
 import skincareImg from '../assets/images/atelier_card_skincare_1794636245762.jpg';
 import dentalImg from '../assets/images/atelier_card_dental_1794636245324.jpg';
-import portraitImg from '../assets/images/atelier_card_portrait_1794636245977.jpg';
 import espressoTextureImg from '../assets/images/heading_espresso_texture_1794636246846.jpg';
 import facialBalancingImg from '../assets/images/treatment_facial_balancing_1794640182845.jpg';
 import dentalVeneersImg from '../assets/images/treatment_dental_veneers_1794640184067.jpg';
@@ -72,20 +71,35 @@ export const CONCIERGE_SUITE_MEDIA: MediaAsset = {
 
 export const HERO_BOUNCE_CARDS: MediaAsset[] = [
   {
-    src: interiorImg,
-    alt: 'Elara Atelier reception lounge bathed in morning light',
+    src: rfMicroneedlingServiceImg,
+    alt: 'Skin specialist performing gentle RF microneedling skin renewal treatment',
   },
   {
-    src: skincareImg,
-    alt: 'Gentle restorative skin serums on natural stone',
+    src: dentalVeneersImg,
+    alt: 'Custom ultra-thin porcelain veneers arranged on a walnut shade tray',
+  },
+  {
+    src: teethWhiteningServiceImg,
+    alt: 'Cosmetic dentist performing an in-chair laser teeth whitening session',
+  },
+  {
+    src: lipShapingServiceImg,
+    alt: 'Doctor consulting with a patient for natural facial and lip balancing',
+  },
+];
+
+export const TRUST_METRIC_VIGNETTES: MediaAsset[] = [
+  {
+    src: interiorImg,
+    alt: 'Elara Atelier reception lounge bathed in morning light',
   },
   {
     src: dentalImg,
     alt: 'Private sunlit cosmetic dental suite with warm walnut finishes',
   },
   {
-    src: portraitImg,
-    alt: 'Patient portrait displaying natural facial balance and healthy skin',
+    src: skincareImg,
+    alt: 'Gentle restorative skin serums on natural stone',
   },
 ];
 

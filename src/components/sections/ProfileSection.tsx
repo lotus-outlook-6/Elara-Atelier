@@ -8,13 +8,16 @@ import {
   ArrowLeft,
   Calendar as CalendarIcon,
   CheckCircle2,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Clock,
   Edit3,
+  History,
   Lock,
   MessageCircle,
   Phone,
+  RotateCcw,
   ShieldCheck,
   XCircle,
 } from 'lucide-react';
@@ -28,17 +31,20 @@ import {
   extractBookingIsoDate,
   formatPreferredDateTime,
   getRemainingEditWindow,
+  isPastBookingDateTime,
   sanitizeNameInput,
   sanitizePhoneDigits,
 } from '../../utils/booking';
 import AtelierDatePicker from '../reactbits/AtelierDatePicker';
 import GlideSelect, { type GlideSelectOption } from '../reactbits/GlideSelect';
 import LatticeLoader from '../reactbits/LatticeLoader';
+import BookingModal from '../ui/BookingModal';
 import PatientAvatar from '../ui/PatientAvatar';
 
 export interface ProfileSectionProps {
   onBackToStudio: () => void;
-  onBookNewVisit: () => void;
+  onBookNewVisit?: () => void;
+  bookModalTrigger?: number;
   onNotify: (title: string, description: string) => void;
 }
 
@@ -50,7 +56,7 @@ const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
  */
 export const ProfileSection: React.FC<ProfileSectionProps> = ({
   onBackToStudio,
-  onBookNewVisit,
+  bookModalTrigger = 0,
   onNotify,
 }) => {
   const {
@@ -71,6 +77,17 @@ export const ProfileSection: React.FC<ProfileSectionProps> = ({
     return { year: now.getFullYear(), month: now.getMonth() };
   });
   const [selectedIsoDate, setSelectedIsoDate] = useState<string | null>(null);
+
+  // Popup booking modal state (new booking or re-booking a cancelled/past visit)
+  const [bookingModal, setBookingModal] = useState<{
+    open: boolean;
+    mode: 'new' | 'rebook';
+    prefillBooking: BookingRecord | null;
+  }>({
+    open: false,
+    mode: 'new',
+    prefillBooking: null,
+  });
 
   // Profile editor state
   const [editingProfile, setEditingProfile] = useState(false);
@@ -94,6 +111,13 @@ export const ProfileSection: React.FC<ProfileSectionProps> = ({
   const [bookingEditError, setBookingEditError] = useState<string | null>(null);
   const [savingBookingEdit, setSavingBookingEdit] = useState(false);
   const [confirmCancelId, setConfirmCancelId] = useState<string | null>(null);
+
+  // Open new-booking popup when header "BOOK VISIT" is clicked while on Profile view
+  useEffect(() => {
+    if (bookModalTrigger > 0) {
+      setBookingModal({ open: true, mode: 'new', prefillBooking: null });
+    }
+  }, [bookModalTrigger]);
 
   // Refresh 4-hour countdown timer every 30 seconds
   useEffect(() => {
@@ -149,16 +173,41 @@ export const ProfileSection: React.FC<ProfileSectionProps> = ({
   const upcomingBookings = useMemo(
     () =>
       bookings
-        .filter(b => b.status !== 'cancelled')
+        .filter(
+          b => b.status !== 'cancelled' && !isPastBookingDateTime(b.preferredDateTime, nowMs)
+        )
         .slice()
         .sort((a, b) => a.preferredDateTime.localeCompare(b.preferredDateTime)),
-    [bookings]
+    [bookings, nowMs]
+  );
+
+  // Active/upcoming bookings (newest first so newly created 4th+ bookings appear at top)
+  const currentBookings = useMemo(
+    () =>
+      bookings
+        .filter(b => !isPastBookingDateTime(b.preferredDateTime, nowMs))
+        .slice()
+        .sort((a, b) => b.createdAtMs - a.createdAtMs),
+    [bookings, nowMs]
+  );
+
+  // Past bookings whose scheduled date and time have elapsed (most recent visit first)
+  const pastBookings = useMemo(
+    () =>
+      bookings
+        .filter(b => isPastBookingDateTime(b.preferredDateTime, nowMs))
+        .slice()
+        .sort((a, b) => b.preferredDateTime.localeCompare(a.preferredDateTime)),
+    [bookings, nowMs]
   );
 
   const displayedBookings = useMemo(() => {
-    if (!selectedIsoDate) return bookings;
-    return bookings.filter(b => extractBookingIsoDate(b.preferredDateTime) === selectedIsoDate);
-  }, [bookings, selectedIsoDate]);
+    if (!selectedIsoDate) return currentBookings;
+    return bookings
+      .filter(b => extractBookingIsoDate(b.preferredDateTime) === selectedIsoDate)
+      .slice()
+      .sort((a, b) => b.createdAtMs - a.createdAtMs);
+  }, [bookings, currentBookings, selectedIsoDate]);
 
   const patientAge = profile?.dob ? calculateAge(profile.dob) : null;
 
@@ -180,12 +229,35 @@ export const ProfileSection: React.FC<ProfileSectionProps> = ({
   /**
    * Shift the calendar month backward or forward by delta months.
    * Inputs: delta (-1 or +1).
+   * Output: void.
+   * Errors: None.
    */
   const shiftMonth = (delta: number) => {
     setCalendarCursor(prev => {
       const next = new Date(prev.year, prev.month + delta, 1);
       return { year: next.getFullYear(), month: next.getMonth() };
     });
+  };
+
+  /**
+   * Open the Consultation Request popup modal for a fresh booking directly from the Profile page.
+   * Inputs: none.
+   * Output: void.
+   * Errors: None.
+   */
+  const openNewBookingModal = () => {
+    setBookingModal({ open: true, mode: 'new', prefillBooking: null });
+  };
+
+  /**
+   * Open the Consultation Request popup modal pre-filled with a cancelled or past booking's details
+   * so the patient only needs to adjust their new preferred date and time.
+   * Inputs: BookingRecord to re-book.
+   * Output: void.
+   * Errors: None.
+   */
+  const openRebookModal = (booking: BookingRecord) => {
+    setBookingModal({ open: true, mode: 'rebook', prefillBooking: booking });
   };
 
   /**
@@ -351,7 +423,8 @@ export const ProfileSection: React.FC<ProfileSectionProps> = ({
             </div>
             <button
               type="button"
-              onClick={onBookNewVisit}
+              onClick={openNewBookingModal}
+              data-testid="profile-book-new-visit"
               className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-xl bg-[#1F1B18] px-5 text-xs font-semibold tracking-[0.12em] text-[#FAF7F2] uppercase transition-colors hover:bg-[#352F2B]"
             >
               <CalendarIcon className="h-3.5 w-3.5 text-[#B68D5E]" />
@@ -550,7 +623,7 @@ export const ProfileSection: React.FC<ProfileSectionProps> = ({
 
               <div className="mt-4 flex flex-wrap gap-2.5">
                 <a
-                  href={`https://wa.me/${CLINIC_CONFIG.whatsappNumber}`}
+                  href={`https://wa.me/${CLINIC_CONFIG.whatsappNumber}?text=${encodeURIComponent(CLINIC_CONFIG.whatsappDefaultMessage)}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex h-10 items-center gap-2 rounded-lg bg-[#1F1B18] px-4 text-xs font-semibold tracking-[0.1em] text-[#FAF7F2] uppercase no-underline transition-colors hover:bg-[#352F2B]"
@@ -566,6 +639,115 @@ export const ProfileSection: React.FC<ProfileSectionProps> = ({
                   {CLINIC_CONFIG.phoneDisplay}
                 </a>
               </div>
+            </div>
+
+            {/* Past Bookings Archive Card (Scrollable when multiple elapsed visits exist) */}
+            <div
+              data-testid="past-bookings-card"
+              className="rounded-2xl border border-[#E2D9CE] bg-[#EFE9E0] p-4 sm:p-6"
+            >
+              <div className="flex items-start justify-between gap-3 border-b border-[#E2D9CE] pb-4">
+                <div>
+                  <p className="text-[11px] font-semibold tracking-[0.18em] text-[#B68D5E] uppercase">
+                    Visit History
+                  </p>
+                  <h2 className="mt-0.5 font-serif text-xl font-semibold text-[#1F1B18]">
+                    Past Bookings
+                  </h2>
+                  <p className="mt-1 text-xs text-[#6E655F]">
+                    Appointments whose date and time have passed move here automatically.
+                  </p>
+                </div>
+                <span className="shrink-0 text-xs font-semibold text-[#1F1B18] tabular-nums">
+                  {pastBookings.length} record{pastBookings.length === 1 ? '' : 's'}
+                </span>
+              </div>
+
+              {bookingsLoading ? (
+                <div className="py-8">
+                  <LatticeLoader
+                    status="working"
+                    color="#B68D5E"
+                    label="Loading visit history"
+                    showTimer={false}
+                  />
+                </div>
+              ) : pastBookings.length === 0 ? (
+                <div className="py-8 text-center">
+                  <History className="mx-auto h-6 w-6 text-[#B68D5E]" aria-hidden="true" />
+                  <p className="mt-2.5 text-sm font-medium text-[#1F1B18]">No past bookings yet</p>
+                  <p className="mx-auto mt-1 max-w-xs text-xs text-[#6E655F]">
+                    Once a scheduled visit date passes, it will be archived here for easy re-booking.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <div
+                    data-testid="past-bookings-scroll-list"
+                    className={
+                      pastBookings.length > 3
+                        ? 'mt-4 max-h-[420px] space-y-3 overflow-y-auto pr-1.5'
+                        : 'mt-4 space-y-3'
+                    }
+                  >
+                    {pastBookings.map(booking => (
+                      <article
+                        key={booking.id}
+                        className="rounded-xl border border-[#E2D9CE] bg-[#FAF7F2] p-4"
+                      >
+                        <div className="flex items-start justify-between gap-2.5">
+                          <div className="min-w-0">
+                            <span
+                              className={`inline-flex items-center gap-1 text-[11px] font-semibold tracking-[0.12em] uppercase ${
+                                booking.status === 'cancelled'
+                                  ? 'text-[#9E3B33]'
+                                  : 'text-[#6E655F]'
+                              }`}
+                            >
+                              {booking.status === 'cancelled' ? (
+                                <XCircle className="h-3 w-3" />
+                              ) : (
+                                <CheckCircle2 className="h-3 w-3 text-[#4B6B50]" />
+                              )}
+                              {booking.status === 'cancelled' ? 'Cancelled' : 'Past Visit'}
+                            </span>
+                            <h3 className="mt-1 font-serif text-base font-semibold text-[#1F1B18]">
+                              {booking.treatmentName}
+                            </h3>
+                            <p className="mt-0.5 text-xs font-medium text-[#6E655F] tabular-nums">
+                              {formatPreferredDateTime(booking.preferredDateTime)}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => openRebookModal(booking)}
+                            className="inline-flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-[#E2D9CE] bg-[#EFE9E0] px-2.5 text-[11px] font-semibold tracking-[0.1em] text-[#1F1B18] uppercase transition-colors hover:border-[#B68D5E]"
+                          >
+                            <RotateCcw className="h-3 w-3 text-[#B68D5E]" />
+                            Re-Book
+                          </button>
+                        </div>
+
+                        {booking.status === 'cancelled' && booking.cancelNote ? (
+                          <div className="mt-2.5 rounded-lg border border-[#9E3B33]/25 bg-[#9E3B33]/[0.05] px-3 py-2 text-xs text-[#6E655F]">
+                            <span className="font-semibold text-[#9E3B33]">
+                              Note from Clinic Team:
+                            </span>{' '}
+                            {booking.cancelNote}
+                          </div>
+                        ) : null}
+                      </article>
+                    ))}
+                  </div>
+
+                  {pastBookings.length > 3 ? (
+                    <div className="mt-3 flex items-center justify-center gap-1.5 border-t border-[#E2D9CE] pt-2.5 text-[11px] font-medium text-[#6E655F]">
+                      <ChevronDown className="h-3.5 w-3.5 text-[#B68D5E]" aria-hidden="true" />
+                      <span>Scroll inside card to view all {pastBookings.length} past bookings</span>
+                    </div>
+                  ) : null}
+                </>
+              )}
             </div>
           </div>
 
@@ -728,134 +910,164 @@ export const ProfileSection: React.FC<ProfileSectionProps> = ({
                   </p>
                   <button
                     type="button"
-                    onClick={selectedIsoDate ? () => setSelectedIsoDate(null) : onBookNewVisit}
+                    onClick={selectedIsoDate ? () => setSelectedIsoDate(null) : openNewBookingModal}
                     className="mt-5 inline-flex h-10 cursor-pointer items-center gap-2 rounded-lg bg-[#1F1B18] px-5 text-xs font-semibold tracking-[0.12em] text-[#FAF7F2] uppercase"
                   >
                     {selectedIsoDate ? 'Show All Bookings' : 'Schedule a Consultation'}
                   </button>
                 </div>
               ) : (
-                <div className="mt-5 space-y-4">
-                  {displayedBookings.map(booking => {
-                    const windowStatus = getRemainingEditWindow(
-                      booking.createdAtMs,
-                      nowMs,
-                      booking.status
-                    );
-                    const editable = canEditBooking(booking.createdAtMs, nowMs, booking.status);
-                    const isEditing = editingBookingId === booking.id;
+                <>
+                  <div
+                    data-testid="consultation-bookings-scroll-list"
+                    className={
+                      displayedBookings.length > 3
+                        ? 'mt-5 max-h-[590px] space-y-4 overflow-y-auto pr-1.5'
+                        : 'mt-5 space-y-4'
+                    }
+                  >
+                    {displayedBookings.map(booking => {
+                      const windowStatus = getRemainingEditWindow(
+                        booking.createdAtMs,
+                        nowMs,
+                        booking.status
+                      );
+                      const editable = canEditBooking(booking.createdAtMs, nowMs, booking.status);
+                      const isEditing = editingBookingId === booking.id;
 
-                    return (
-                      <article
-                        key={booking.id}
-                        className="rounded-xl border border-[#E2D9CE] bg-[#FAF7F2] p-5"
-                      >
-                        <div className="flex flex-wrap items-start justify-between gap-3">
-                          <div>
-                            <div className="flex flex-wrap items-center gap-2 text-xs">
-                              <span
-                                className={`inline-flex items-center gap-1 font-semibold tracking-[0.12em] uppercase ${
-                                  booking.status === 'cancelled'
-                                    ? 'text-[#9E3B33]'
+                      return (
+                        <article
+                          key={booking.id}
+                          className="rounded-xl border border-[#E2D9CE] bg-[#FAF7F2] p-5"
+                        >
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div>
+                              <div className="flex flex-wrap items-center gap-2 text-xs">
+                                <span
+                                  className={`inline-flex items-center gap-1 font-semibold tracking-[0.12em] uppercase ${
+                                    booking.status === 'cancelled'
+                                      ? 'text-[#9E3B33]'
+                                      : booking.status === 'confirmed'
+                                        ? 'text-[#4B6B50]'
+                                        : 'text-[#B68D5E]'
+                                  }`}
+                                >
+                                  {booking.status === 'cancelled' ? (
+                                    <XCircle className="h-3.5 w-3.5" />
+                                  ) : booking.status === 'confirmed' ? (
+                                    <CheckCircle2 className="h-3.5 w-3.5" />
+                                  ) : (
+                                    <MessageCircle className="h-3.5 w-3.5" />
+                                  )}
+                                  {booking.status === 'cancelled'
+                                    ? 'Cancelled'
                                     : booking.status === 'confirmed'
-                                      ? 'text-[#4B6B50]'
-                                      : 'text-[#B68D5E]'
-                                }`}
-                              >
-                                {booking.status === 'cancelled' ? (
-                                  <XCircle className="h-3.5 w-3.5" />
-                                ) : booking.status === 'confirmed' ? (
-                                  <CheckCircle2 className="h-3.5 w-3.5" />
-                                ) : (
-                                  <MessageCircle className="h-3.5 w-3.5" />
-                                )}
-                                {booking.status === 'cancelled'
-                                  ? 'Cancelled'
-                                  : booking.status === 'confirmed'
-                                    ? 'Confirmed by Team'
-                                    : 'Pending WhatsApp Confirmation'}
-                              </span>
-                              <span aria-hidden="true" className="text-[#6E655F]">
-                                ·
-                              </span>
-                              <span className="inline-flex items-center gap-1 text-[#6E655F] tabular-nums">
-                                {editable ? (
-                                  <Clock className="h-3.5 w-3.5 text-[#B68D5E]" />
-                                ) : (
-                                  <Lock className="h-3.5 w-3.5 text-[#6E655F]" />
-                                )}
-                                {windowStatus.label}
-                              </span>
+                                      ? 'Confirmed by Team'
+                                      : 'Pending Confirmation'}
+                                </span>
+                                <span aria-hidden="true" className="text-[#6E655F]">
+                                  ·
+                                </span>
+                                <span className="inline-flex items-center gap-1 text-[#6E655F] tabular-nums">
+                                  {editable ? (
+                                    <Clock className="h-3.5 w-3.5 text-[#B68D5E]" />
+                                  ) : (
+                                    <Lock className="h-3.5 w-3.5 text-[#6E655F]" />
+                                  )}
+                                  {windowStatus.label}
+                                </span>
+                              </div>
+
+                              <h3 className="mt-1.5 font-serif text-xl font-semibold text-[#1F1B18]">
+                                {booking.treatmentName}
+                              </h3>
+                              <p className="mt-1 text-sm font-medium text-[#1F1B18] tabular-nums">
+                                {formatPreferredDateTime(booking.preferredDateTime)}
+                              </p>
                             </div>
 
-                            <h3 className="mt-1.5 font-serif text-xl font-semibold text-[#1F1B18]">
-                              {booking.treatmentName}
-                            </h3>
-                            <p className="mt-1 text-sm font-medium text-[#1F1B18] tabular-nums">
-                              {formatPreferredDateTime(booking.preferredDateTime)}
-                            </p>
-                          </div>
-
-                          <div className="flex flex-wrap items-center gap-2">
-                            {editable ? (
-                              <>
+                            <div className="flex flex-wrap items-center gap-2">
+                              {booking.status === 'cancelled' ? (
                                 <button
                                   type="button"
-                                  onClick={() =>
-                                    isEditing
-                                      ? setEditingBookingId(null)
-                                      : startEditingBooking(booking)
-                                  }
-                                  className="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-lg border border-[#E2D9CE] bg-[#EFE9E0] px-3 text-xs font-semibold tracking-[0.1em] text-[#1F1B18] uppercase hover:border-[#B68D5E]"
+                                  onClick={() => openRebookModal(booking)}
+                                  className="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-lg bg-[#1F1B18] px-3.5 text-xs font-semibold tracking-[0.1em] text-[#FAF7F2] uppercase transition-colors hover:bg-[#352F2B]"
                                 >
-                                  <Edit3 className="h-3.5 w-3.5 text-[#B68D5E]" />
-                                  {isEditing ? 'Close Editor' : 'Edit Visit'}
+                                  <RotateCcw className="h-3.5 w-3.5 text-[#B68D5E]" />
+                                  Re-Book Visit
                                 </button>
-                                {confirmCancelId === booking.id ? (
-                                  <div className="flex items-center gap-1.5">
-                                    <button
-                                      type="button"
-                                      disabled={savingBookingEdit}
-                                      onClick={() => handleCancelBooking(booking.id)}
-                                      className="h-9 cursor-pointer rounded-lg bg-[#9E3B33] px-3 text-xs font-semibold text-[#FAF7F2] uppercase"
-                                    >
-                                      Confirm Cancel
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => setConfirmCancelId(null)}
-                                      className="h-9 cursor-pointer rounded-lg border border-[#E2D9CE] px-2.5 text-xs text-[#6E655F]"
-                                    >
-                                      Keep
-                                    </button>
-                                  </div>
-                                ) : (
+                              ) : editable ? (
+                                <>
                                   <button
                                     type="button"
-                                    onClick={() => setConfirmCancelId(booking.id)}
-                                    className="h-9 cursor-pointer rounded-lg border border-[#E2D9CE] px-3 text-xs font-semibold tracking-[0.1em] text-[#9E3B33] uppercase hover:bg-[#9E3B33]/10"
+                                    onClick={() =>
+                                      isEditing
+                                        ? setEditingBookingId(null)
+                                        : startEditingBooking(booking)
+                                    }
+                                    className="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-lg border border-[#E2D9CE] bg-[#EFE9E0] px-3 text-xs font-semibold tracking-[0.1em] text-[#1F1B18] uppercase hover:border-[#B68D5E]"
                                   >
-                                    Cancel
+                                    <Edit3 className="h-3.5 w-3.5 text-[#B68D5E]" />
+                                    {isEditing ? 'Close Editor' : 'Edit Visit'}
                                   </button>
-                                )}
-                              </>
-                            ) : null}
+                                  {confirmCancelId === booking.id ? (
+                                    <div className="flex items-center gap-1.5">
+                                      <button
+                                        type="button"
+                                        disabled={savingBookingEdit}
+                                        onClick={() => handleCancelBooking(booking.id)}
+                                        className="h-9 cursor-pointer rounded-lg bg-[#9E3B33] px-3 text-xs font-semibold text-[#FAF7F2] uppercase"
+                                      >
+                                        Confirm Cancel
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setConfirmCancelId(null)}
+                                        className="h-9 cursor-pointer rounded-lg border border-[#E2D9CE] px-2.5 text-xs text-[#6E655F]"
+                                      >
+                                        Keep
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => setConfirmCancelId(booking.id)}
+                                      className="h-9 cursor-pointer rounded-lg border border-[#E2D9CE] px-3 text-xs font-semibold tracking-[0.1em] text-[#9E3B33] uppercase hover:bg-[#9E3B33]/10"
+                                    >
+                                      Cancel
+                                    </button>
+                                  )}
+                                </>
+                              ) : null}
+                            </div>
                           </div>
-                        </div>
 
-                        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-[#E2D9CE] pt-3 text-xs text-[#6E655F]">
-                          <span className="tabular-nums">
-                            Phone &amp; WhatsApp: {booking.phoneCountryCode} {booking.phoneNumber}
-                          </span>
-                        </div>
+                          {booking.status === 'cancelled' && booking.cancelNote ? (
+                            <div
+                              data-testid="booking-cancel-note"
+                              className="mt-3.5 rounded-xl border border-[#9E3B33]/25 bg-[#9E3B33]/[0.05] p-3.5 text-xs leading-relaxed text-[#1F1B18]"
+                            >
+                              <p className="flex items-center gap-1.5 font-semibold tracking-[0.1em] text-[#9E3B33] uppercase">
+                                <MessageCircle className="h-3.5 w-3.5" aria-hidden="true" />
+                                Note from Clinic Team
+                              </p>
+                              <p className="mt-1 text-sm text-[#1F1B18]">{booking.cancelNote}</p>
+                            </div>
+                          ) : null}
 
-                        {!editable && booking.status !== 'cancelled' ? (
-                          <p className="mt-2.5 flex items-center gap-1.5 text-xs text-[#6E655F]">
-                            <Phone className="h-3.5 w-3.5 text-[#B68D5E]" />
-                            4-hour self-edit window ended. Call {CLINIC_CONFIG.phoneDisplay} for
-                            concierge rescheduling.
-                          </p>
-                        ) : null}
+                          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-[#E2D9CE] pt-3 text-xs text-[#6E655F]">
+                            <span className="tabular-nums">
+                              Phone &amp; WhatsApp: {booking.phoneCountryCode} {booking.phoneNumber}
+                            </span>
+                          </div>
+
+                          {!editable && booking.status !== 'cancelled' ? (
+                            <p className="mt-2.5 flex items-center gap-1.5 text-xs text-[#6E655F]">
+                              <Phone className="h-3.5 w-3.5 text-[#B68D5E]" />
+                              4-hour self-edit window ended. Call {CLINIC_CONFIG.phoneDisplay} for
+                              concierge rescheduling.
+                            </p>
+                          ) : null}
 
                         {/* Inline 4-Hour Booking Editor */}
                         {isEditing && editable ? (
@@ -973,12 +1185,36 @@ export const ProfileSection: React.FC<ProfileSectionProps> = ({
                       </article>
                     );
                   })}
-                </div>
+                  </div>
+
+                  {displayedBookings.length > 3 ? (
+                    <div className="mt-3.5 flex items-center justify-center gap-1.5 border-t border-[#E2D9CE] pt-3 text-xs font-medium text-[#6E655F]">
+                      <ChevronDown className="h-3.5 w-3.5 text-[#B68D5E]" aria-hidden="true" />
+                      <span>
+                        Scroll inside card to view all {displayedBookings.length} bookings
+                      </span>
+                    </div>
+                  ) : null}
+                </>
               )}
             </div>
           </div>
         </div>
       </div>
+
+      {/* Quick Consultation Request / Re-Book Popup Modal */}
+      <BookingModal
+        open={bookingModal.open}
+        mode={bookingModal.mode}
+        prefillBooking={bookingModal.prefillBooking}
+        onClose={() => setBookingModal(prev => ({ ...prev, open: false }))}
+        onBooked={summary => {
+          onNotify(
+            summary.isRebook ? 'Visit Re-Booked' : 'Appointment Request Received',
+            `${summary.patientName} · ${summary.treatmentName}`
+          );
+        }}
+      />
     </section>
   );
 };

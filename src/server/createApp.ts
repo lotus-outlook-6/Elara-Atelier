@@ -44,6 +44,7 @@ interface FirebaseAppletConfig {
 interface TelegramNotifyBody {
   bookingId?: string;
   isUpdate?: boolean;
+  isCancelled?: boolean;
   userId?: string;
   fullName?: string;
   phoneCountryCode?: string;
@@ -504,13 +505,14 @@ export function createExpressApp(): CreateAppResult {
         id: booking.id,
         preferredDateTime: booking.preferredDateTime,
         status: booking.status,
+        cancelNote: booking.cancelNote,
         updatedVia: booking.updatedVia || 'web',
         updatedAtMs: booking.updatedAtMs,
       },
     });
   });
 
-  // Register a booking and notify the clinical Team Bot ONCE when the booking is submitted (or explicitly updated)
+  // Register a booking and notify the clinical Team Bot ONCE when created, updated, or cancelled by patient
   app.post('/api/telegram/notify', async (req, res) => {
     const body = (req.body || {}) as TelegramNotifyBody;
     const bookingId = String(body.bookingId || `bk_${Date.now()}`).replace(/[^a-zA-Z0-9_-]/g, '');
@@ -531,6 +533,7 @@ export function createExpressApp(): CreateAppResult {
 
     const alreadyExists = Boolean(store.getBookingById(bookingId));
     const isExplicitUpdate = Boolean(body.isUpdate);
+    const isPatientCancelled = Boolean(body.isCancelled);
 
     const record = store.upsertBooking({
       id: bookingId,
@@ -546,18 +549,32 @@ export function createExpressApp(): CreateAppResult {
       preferredDateTime: String(body.preferredDateTime || ''),
       telegramMethod: 'phone',
       telegramValue: `${primaryCode}${primaryDigits}`,
-      status: 'requested',
+      status: isPatientCancelled ? 'cancelled' : 'requested',
+      cancelledBy: isPatientCancelled ? 'patient' : undefined,
+      updatedVia: 'web',
       createdAtMs: typeof body.createdAtMs === 'number' ? body.createdAtMs : Date.now(),
       updatedAtMs: Date.now(),
       chatId: body.chatId?.trim() || undefined,
     });
 
-    // Notify Doctors / Clinical Team Bot ONCE when a new booking is created (or on explicit edit)
+    if (isPatientCancelled) {
+      broadcastSyncEvents([
+        {
+          type: 'booking_updated',
+          booking: record,
+          userId: record.userId,
+        },
+      ]);
+    }
+
+    // Notify Doctors / Clinical Team Bot when created, explicitly edited, or cancelled by the patient
     let teamDeliveredCount = 0;
-    if (!alreadyExists || isExplicitUpdate) {
-      const heading = isExplicitUpdate
-        ? 'ELARA ATELIER · BOOKING UPDATED'
-        : 'ELARA ATELIER · NEW PATIENT BOOKING';
+    if (!alreadyExists || isExplicitUpdate || isPatientCancelled) {
+      const heading = isPatientCancelled
+        ? 'ELARA ATELIER · PATIENT CANCELLED VISIT'
+        : isExplicitUpdate
+          ? 'ELARA ATELIER · BOOKING UPDATED'
+          : 'ELARA ATELIER · NEW PATIENT BOOKING';
       teamDeliveredCount = await pushIndividualTeamBookingAlert(store, record, heading);
     }
 

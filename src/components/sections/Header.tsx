@@ -18,7 +18,7 @@ export interface HeaderProps {
   userDisplayName: string | null;
   userPhotoUrl?: string | null;
   bookingCount: number;
-  activeView: 'studio' | 'auth' | 'profile' | 'privacy' | 'terms';
+  activeView: 'studio' | 'auth' | 'profile' | 'privacy' | 'terms' | 'about';
   onReturnStudio: () => void;
 }
 

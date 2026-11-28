@@ -10,6 +10,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import ClickSpark from './components/reactbits/ClickSpark';
 import LatticeLoader from './components/reactbits/LatticeLoader';
 import SwipeToast from './components/reactbits/SwipeToast';
+import AboutProjectSection from './components/sections/AboutProjectSection';
 import AuthSection from './components/sections/AuthSection';
 import BeforeAfterSection from './components/sections/BeforeAfterSection';
 import BookingSection from './components/sections/BookingSection';
@@ -112,7 +113,8 @@ function AtelierShell() {
   });
   const [selectedTreatmentId, setSelectedTreatmentId] = useState<string>(TREATMENTS[0].id);
   const [previewLoading, setPreviewLoading] = useState<boolean>(true);
-  const [activeView, setActiveView] = useState<'studio' | 'auth' | 'profile' | 'privacy' | 'terms'>('studio');
+  const [activeView, setActiveView] = useState<'studio' | 'auth' | 'profile' | 'privacy' | 'terms' | 'about'>('studio');
+  const [profileBookModalTrigger, setProfileBookModalTrigger] = useState<number>(0);
   const [mapsQuotaExceeded, setMapsQuotaExceeded] = useState<boolean>(false);
   const [toast, setToast] = useState<ToastState>({
     open: false,
@@ -192,10 +194,10 @@ function AtelierShell() {
   };
 
   /**
-   * Open an in-page portal or legal view and smoothly scroll to the top of the viewport.
-   * Inputs: target view ('auth' | 'profile' | 'privacy' | 'terms').
+   * Open an in-page portal, about-project, or legal view and smoothly scroll to the top of the viewport.
+   * Inputs: target view ('auth' | 'profile' | 'privacy' | 'terms' | 'about').
    */
-  const openPortalView = (view: 'auth' | 'profile' | 'privacy' | 'terms') => {
+  const openPortalView = (view: 'auth' | 'profile' | 'privacy' | 'terms' | 'about') => {
     setActiveView(view);
     window.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior });
     window.setTimeout(() => {
@@ -205,9 +207,13 @@ function AtelierShell() {
 
   /**
    * Smoothly scroll the viewport to the appointment booking section,
-   * switching back from Auth, Profile, or Legal view if active.
+   * opening the quick booking popup directly if the patient is currently on their Profile page.
    */
   const scrollToBooking = () => {
+    if (activeView === 'profile') {
+      setProfileBookModalTrigger(prev => prev + 1);
+      return;
+    }
     if (activeView !== 'studio') {
       setActiveView('studio');
       window.setTimeout(() => {
@@ -336,6 +342,7 @@ function AtelierShell() {
                 <ProfileSection
                   onBackToStudio={() => setActiveView('studio')}
                   onBookNewVisit={scrollToBooking}
+                  bookModalTrigger={profileBookModalTrigger}
                   onNotify={showToast}
                 />
               </motion.div>
@@ -370,6 +377,23 @@ function AtelierShell() {
                     window.scrollTo({ top: 0, behavior: 'smooth' });
                   }}
                   onSwitchPage={nextPage => openPortalView(nextPage)}
+                />
+              </motion.div>
+            ) : activeView === 'about' ? (
+              <motion.div
+                key="about-project-view"
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                transition={{ duration: 0.25, ease: [0.23, 1, 0.32, 1] }}
+              >
+                <AboutProjectSection
+                  onBackToStudio={() => {
+                    setActiveView('studio');
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                  }}
+                  onOpenPrivacy={() => openPortalView('privacy')}
+                  onOpenTerms={() => openPortalView('terms')}
                 />
               </motion.div>
             ) : (
@@ -407,6 +431,7 @@ function AtelierShell() {
         </main>
 
         <Footer
+          onOpenAbout={() => openPortalView('about')}
           onOpenPrivacy={() => openPortalView('privacy')}
           onOpenTerms={() => openPortalView('terms')}
           onReturnStudio={() => setActiveView('studio')}

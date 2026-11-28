@@ -19,6 +19,7 @@ test('firestore.rules includes default-deny catch-all, 4-hour edit duration, and
   assert.match(rulesSource, /existing\(\)\.status != 'cancelled'/);
   assert.match(rulesSource, /isValidBooking\(incoming\(\)\)/);
   assert.match(rulesSource, /isValidUserProfile\(incoming\(\)\)/);
+  assert.match(rulesSource, /data\.cancelNote is string && data\.cancelNote\.size\(\) <= 500/);
 });
 
 test('Dirty Dozen adversarial payloads fail schema and ownership invariants', () => {
@@ -50,10 +51,12 @@ test('Dirty Dozen adversarial payloads fail schema and ownership invariants', ()
     'telegramValue',
     'telegramNotifyStatus',
     'status',
+    'cancelNote',
     'createdAt',
     'updatedAt',
   ]);
   assert.equal(allowedBookingKeys.has('isAdmin'), false);
+  assert.equal('x'.repeat(501).length <= 500, false);
 
   // 6: Numeric characters in fullName rejected
   assert.equal(nameRegex.test('Camille 2'), false);

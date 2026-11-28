@@ -53,7 +53,10 @@ test('buildTeamPatientAlertCard generates 1-click WhatsApp confirmation URL with
 
   assert.match(card.text, /Camille Laurent/);
   assert.match(card.text, /Porcelain Veneers/);
-  assert.match(card.text, /\+44 7700900123/);
+  assert.match(card.text, /<b>Cost:<\/b> From \$240/);
+  assert.match(card.text, /<b>Phone:<\/b> <code>\+44 7700900123<\/code>/);
+  assert.doesNotMatch(card.text, /<b>WhatsApp:<\/b>/);
+  assert.doesNotMatch(card.text, /<b>Phone \(Call\):<\/b>/);
   assert.doesNotMatch(card.text, /@camille_laurent/);
   assert.doesNotMatch(card.text, /<b>Telegram:<\/b>/);
 
@@ -294,8 +297,10 @@ test('dispatchMorningBookingsDigest skips silently when 0 active bookings exist 
   assert.match(msg, /MORNING BOOKING LIST/);
   assert.match(msg, /Total Bookings:<\/b> 2/);
   assert.ok(msg.indexOf('Hannah Abbott') < msg.indexOf('Daniel Park'), 'Bookings must be sorted chronologically');
-  assert.match(msg, /WhatsApp \/ Phone: <code>\+1 3105550111<\/code>/);
-  assert.match(msg, /Phone Call Only: <code>\+1 3105550222<\/code>/);
+  assert.match(msg, /Porcelain Veneers \(Smile Makeover\) \(From \$240\)/);
+  assert.match(msg, /In-Chair Laser Teeth Whitening \(From \$150\)/);
+  assert.match(msg, /Phone: <code>\+1 3105550111<\/code>/);
+  assert.match(msg, /Phone: <code>\+1 3105550222<\/code> \(Call Only\)/);
 
   // Verify buildMorningBookingsListMessage directly as well
   const directHtml = buildMorningBookingsListMessage({
@@ -305,3 +310,119 @@ test('dispatchMorningBookingsDigest skips silently when 0 active bookings exist 
   });
   assert.match(directHtml, /Friday, Nov 27, 2026/);
 });
+
+test('team cancel flow requires a cancel note, syncs cancelNote to patient, and supports cold-start recovery', () => {
+  const store = new ConciergeStore(null);
+  const nowMs = Date.UTC(2026, 10, 28, 16, 0, 0);
+
+  store.upsertBooking(
+    makeBooking({
+      id: 'bk_cancel_note_1',
+      chatId: '9001',
+      fullName: 'Sphinx Cipher',
+      phoneCountryCode: '+44',
+      phoneNumber: '447831392873',
+      whatsappCountryCode: '+44',
+      whatsappNumber: '447831392873',
+      treatmentId: 'fa-wrinkle',
+      treatmentName: 'Wrinkle Relaxing Injections',
+      preferredDateTime: '2026-12-04T14:00',
+    })
+  );
+
+  // Step 1: Team taps Cancel Visit -> does NOT cancel immediately; asks for a cancel note with ForceReply
+  const promptStep = processTeamBotUpdate(
+    store,
+    {
+      callback_query: {
+        id: 'cq_cancel_1',
+        message: { message_id: 88, chat: { id: -5001 } },
+        data: 'team:cancel:bk_cancel_note_1',
+      },
+    },
+    { nowMs }
+  );
+  assert.equal(store.getBookingById('bk_cancel_note_1')?.status, 'requested');
+  assert.equal(promptStep.syncEvents.length, 0);
+  const promptMsg = promptStep.actions.find(a => a.method === 'sendMessage');
+  assert.ok(promptMsg);
+  assert.match(String(promptMsg.payload.text), /Cancellation Note Required/);
+  assert.equal((promptMsg.payload.reply_markup as { force_reply?: boolean })?.force_reply, true);
+
+  // Step 2: Team replies with a cancellation note -> booking becomes cancelled with cancelNote & syncs
+  const noteStep = processTeamBotUpdate(
+    store,
+    {
+      message: {
+        chat: { id: -5001 },
+        text: 'Dr. Elara has an emergency procedure; please re-book for Monday or Tuesday.',
+      },
+    },
+    { nowMs: nowMs + 10_000 }
+  );
+  const updated = store.getBookingById('bk_cancel_note_1');
+  assert.equal(updated?.status, 'cancelled');
+  assert.equal(
+    updated?.cancelNote,
+    'Dr. Elara has an emergency procedure; please re-book for Monday or Tuesday.'
+  );
+  assert.equal(noteStep.syncEvents.length, 1);
+  assert.equal(noteStep.syncEvents[0].type, 'booking_updated');
+  assert.equal(noteStep.patientNotifyEvents.length, 1);
+  assert.match(
+    buildPatientStatusUpdateMessage(noteStep.patientNotifyEvents[0].booking),
+    /Note from Clinic Team:/
+  );
+  // Cancelled booking must be excluded from 2026-12-04 schedule & PDF
+  assert.equal(store.getBookingsForDate('2026-12-04').length, 0);
+
+  // Step 3: Cold-start recovery on a completely empty serverless store using callback_query.message.text
+  const coldStore = new ConciergeStore(null);
+  const coldConfirm = processTeamBotUpdate(
+    coldStore,
+    {
+      callback_query: {
+        id: 'cq_cold_confirm',
+        message: {
+          message_id: 101,
+          chat: { id: -5001 },
+          text: [
+            'ELARA ATELIER · NEW PATIENT BOOKING',
+            '',
+            'Patient: Sphinx Cipher',
+            'Treatment: 3D Digital Smile Preview',
+            'Cost: From $120',
+            'Date & Time: Mon, Nov 30 · 11:00 AM',
+            'Phone: +44 447831392873',
+            'Status: ⏳ PENDING CONFIRMATION',
+            'Ref: bk_cold_999',
+          ].join('\n'),
+        },
+        data: 'team:confirm:bk_cold_999',
+      },
+    },
+    { nowMs }
+  );
+  const recovered = coldStore.getBookingById('bk_cold_999');
+  assert.ok(recovered, 'Cold-start store should rehydrate booking from message text');
+  assert.equal(recovered?.status, 'confirmed');
+  assert.equal(recovered?.fullName, 'Sphinx Cipher');
+  assert.equal(recovered?.preferredDateTime, '2026-11-30T11:00');
+  assert.equal(coldConfirm.syncEvents.length, 1);
+
+  // Step 4: Date-specific PDF callback generates PDF request for that exact date
+  const datePdf = processTeamBotUpdate(
+    store,
+    {
+      callback_query: {
+        id: 'cq_pdf_date',
+        message: { message_id: 105, chat: { id: -5001 } },
+        data: 'team:pdf:date:2026-12-04',
+      },
+    },
+    { nowMs }
+  );
+  assert.equal(datePdf.sendPdfRequests.length, 1);
+  assert.equal(datePdf.sendPdfRequests[0].targetIsoDate, '2026-12-04');
+});
+

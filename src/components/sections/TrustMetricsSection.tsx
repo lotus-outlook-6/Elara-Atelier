@@ -5,7 +5,7 @@
 
 import React, { type CSSProperties } from 'react';
 import { TRUST_METRICS } from '../../data/clinicData';
-import { HERO_BOUNCE_CARDS } from '../../data/clinicMedia';
+import { TRUST_METRIC_VIGNETTES } from '../../data/clinicMedia';
 import CountUp from '../reactbits/CountUp';
 import SpotlightCard from '../reactbits/SpotlightCard';
 
@@ -14,7 +14,7 @@ import SpotlightCard from '../reactbits/SpotlightCard';
  * Output: Rendered trust metrics section.
  */
 export const TrustMetricsSection: React.FC = () => {
-  const vignettes = [HERO_BOUNCE_CARDS[0], HERO_BOUNCE_CARDS[2], HERO_BOUNCE_CARDS[1]];
+  const vignettes = TRUST_METRIC_VIGNETTES;
 
   return (
     <section

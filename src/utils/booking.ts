@@ -500,6 +500,30 @@ export function isPastCalendarDate(
 }
 
 /**
+ * Determine whether a booking's scheduled date and time (YYYY-MM-DDTHH:mm) has already passed.
+ * Used to automatically archive elapsed visits into the Past Bookings list.
+ * Inputs: preferredDateTime string, optional nowMs epoch milliseconds (defaults to Date.now()).
+ * Output: boolean true when the scheduled appointment timestamp is strictly earlier than nowMs.
+ * Errors: None (returns false for invalid/empty date strings).
+ */
+export function isPastBookingDateTime(
+  preferredDateTime: string,
+  nowMs: number = Date.now()
+): boolean {
+  const trimmed = preferredDateTime.trim();
+  const match = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2}))?/.exec(trimmed);
+  if (!match) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const hour = match[4] !== undefined ? Number(match[4]) : 23;
+  const minute = match[5] !== undefined ? Number(match[5]) : 59;
+  const scheduled = new Date(year, month - 1, day, hour, minute, 0, 0);
+  if (Number.isNaN(scheduled.getTime())) return false;
+  return scheduled.getTime() < nowMs;
+}
+
+/**
  * Compute a valid default booking datetime string landing on today (if Mon–Fri)
  * or the next upcoming Monday, never returning a past date or weekend.
  * Inputs: optional referenceDate Date, optional timeSlot string ('HH:mm').

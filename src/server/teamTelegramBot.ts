@@ -7,6 +7,7 @@
  */
 
 import { CLINIC_CONFIG } from '../config/clinicConfig';
+import { TREATMENTS } from '../data/clinicData';
 import { buildTeamWhatsAppConfirmationUrl } from '../utils/booking';
 import {
   ConciergeStore,
@@ -85,10 +86,128 @@ export function resolveBookingWhatsAppDisplay(booking: ConciergeBookingRecord): 
 }
 
 /**
+ * Resolve the starting treatment cost label strictly for internal Team Telegram Bot alerts.
+ * Inputs: ConciergeBookingRecord with treatmentId and/or treatmentName.
+ * Output: Formatted price string (e.g. "From $240" or "Custom Quote").
+ * Errors: None.
+ */
+export function resolveTreatmentCostLabel(booking: ConciergeBookingRecord): string {
+  const normalizedId = (booking.treatmentId || '').trim().toLowerCase();
+  const normalizedName = (booking.treatmentName || '').trim().toLowerCase();
+  const matched =
+    (normalizedName
+      ? TREATMENTS.find(item => item.name.toLowerCase() === normalizedName)
+      : undefined) ||
+    (normalizedId
+      ? TREATMENTS.find(item => item.id.toLowerCase() === normalizedId)
+      : undefined);
+  if (!matched?.startingPrice) {
+    return 'Custom Quote';
+  }
+  return `From ${matched.startingPrice}`;
+}
+
+/**
+ * Parse a Telegram display date/time string like "Mon, Nov 30 · 11:00 AM" back to ISO "YYYY-MM-DDTHH:mm"
+ * so cold-start rehydrated bookings preserve schedule date & time accurately.
+ * Inputs: rawDateTime string, referenceNowMs epoch milliseconds.
+ * Output: ISO "YYYY-MM-DDTHH:mm" string (or original string if already ISO / unparseable).
+ * Errors: None.
+ */
+function parseBotDisplayDateTimeToIso(rawDateTime: string, referenceNowMs: number): string {
+  const trimmed = rawDateTime.trim();
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(trimmed)) {
+    return trimmed;
+  }
+  const match =
+    /(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{1,2})\s*[·•,|-]\s*(\d{1,2}):(\d{2})\s*(AM|PM)/i.exec(
+      trimmed
+    );
+  if (!match) return trimmed;
+  const monthNames = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+  const monthIdx = monthNames.indexOf(match[1].toLowerCase());
+  if (monthIdx < 0) return trimmed;
+  const day = Number(match[2]);
+  let hour = Number(match[3]) % 12;
+  const minute = Number(match[4]);
+  if (match[5].toUpperCase() === 'PM') hour += 12;
+
+  const refDate = new Date(referenceNowMs);
+  let year = refDate.getUTCFullYear();
+  // If current month is Nov/Dec and booking month is Jan/Feb, advance year cleanly
+  if (refDate.getUTCMonth() >= 10 && monthIdx <= 1) {
+    year += 1;
+  }
+  return `${String(year).padStart(4, '0')}-${String(monthIdx + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+}
+
+/**
+ * Reconstruct a fallback ConciergeBookingRecord directly from a Team Bot Telegram card or cancel-prompt
+ * message text when a stateless serverless container cold-starts without the in-memory booking.
+ * Inputs: bookingId string, raw Telegram message text, referenceNowMs epoch milliseconds.
+ * Output: ConciergeBookingRecord or null if bookingId is invalid.
+ * Errors: None.
+ */
+export function rehydrateBookingFromTelegramMessage(
+  bookingId: string,
+  messageText: string | undefined,
+  referenceNowMs = Date.now()
+): ConciergeBookingRecord | null {
+  const cleanId = bookingId.replace(/[^a-zA-Z0-9_-]/g, '');
+  if (!cleanId) return null;
+  const text = (messageText || '').trim();
+
+  const extractLine = (label: string): string => {
+    const regex = new RegExp(`^${label}:\\s*(.+)$`, 'im');
+    const found = regex.exec(text);
+    return found ? found[1].trim() : '';
+  };
+
+  const fullName = extractLine('Patient') || 'Patient';
+  const treatmentName = extractLine('Treatment') || 'Private Consultation';
+  const matchedTreatment = TREATMENTS.find(
+    t => t.name.toLowerCase() === treatmentName.toLowerCase()
+  );
+  const rawDateTime = extractLine('Date & Time');
+  const preferredDateTime = rawDateTime
+    ? parseBotDisplayDateTimeToIso(rawDateTime, referenceNowMs)
+    : '';
+  const rawPhone =
+    extractLine('Phone') || extractLine('WhatsApp') || extractLine('Phone \\(Call\\)');
+  const callOnly = /call only/i.test(rawPhone) || /phone call only/i.test(text);
+  const cleanedPhone = rawPhone.replace(/\(call only\)/gi, '').trim();
+  const phoneMatch = /^(\+\d{1,4})\s*(\d{5,15})/.exec(cleanedPhone);
+  const phoneCountryCode = phoneMatch ? phoneMatch[1] : '+1';
+  const phoneNumber = phoneMatch
+    ? phoneMatch[2]
+    : cleanedPhone.replace(/\D/g, '').slice(-15);
+
+  return {
+    id: cleanId,
+    userId: null,
+    fullName,
+    phoneCountryCode,
+    phoneNumber,
+    messagingConsent: !callOnly,
+    whatsappCountryCode: !callOnly ? phoneCountryCode : undefined,
+    whatsappNumber: !callOnly ? phoneNumber : undefined,
+    treatmentId: matchedTreatment?.id || 'consultation',
+    treatmentName,
+    preferredDateTime,
+    telegramMethod: 'phone',
+    telegramValue: phoneNumber ? `${phoneCountryCode}${phoneNumber}` : `${phoneCountryCode}0000000`,
+    status: 'requested',
+    createdAtMs: referenceNowMs,
+    updatedAtMs: referenceNowMs,
+  };
+}
+
+/**
  * Build an individual Team Bot notification card for a single patient booking,
- * including a 1-click WhatsApp confirmation link button pre-filled with treatment & schedule details.
+ * including treatment cost, a single unified phone line, and a 1-click WhatsApp confirmation button.
  * Inputs: ConciergeBookingRecord, optional heading override.
  * Output: HTML text and inline_keyboard markup.
+ * Errors: None.
  */
 export function buildTeamPatientAlertCard(
   booking: ConciergeBookingRecord,
@@ -99,6 +218,11 @@ export function buildTeamPatientAlertCard(
 } {
   const allowsMessaging = booking.messagingConsent !== false;
   const wa = resolveBookingWhatsAppDisplay(booking);
+  const costLabel = resolveTreatmentCostLabel(booking);
+  const singlePhoneDisplay =
+    allowsMessaging && wa.display && wa.display !== 'Not provided'
+      ? wa.display
+      : `${booking.phoneCountryCode} ${booking.phoneNumber}`.trim() || 'Not provided';
   const waUrl =
     allowsMessaging && wa.digits
       ? buildTeamWhatsAppConfirmationUrl({
@@ -113,22 +237,27 @@ export function buildTeamPatientAlertCard(
     booking.status === 'confirmed'
       ? '✅ CONFIRMED'
       : booking.status === 'cancelled'
-        ? '❌ CANCELLED'
+        ? booking.cancelledBy === 'patient'
+          ? '❌ CANCELLED BY PATIENT'
+          : '❌ CANCELLED BY TEAM'
         : allowsMessaging
-          ? '⏳ AWAITING WHATSAPP CONFIRMATION'
-          : '📞 AWAITING PHONE CALL CONFIRMATION';
+          ? '⏳ PENDING CONFIRMATION'
+          : '📞 PENDING CONFIRMATION (CALL ONLY)';
 
   const lines: string[] = [
     `<b>${escapeTelegramHtml(heading)}</b>`,
     ``,
     `<b>Patient:</b> ${escapeTelegramHtml(booking.fullName)}`,
     `<b>Treatment:</b> ${escapeTelegramHtml(booking.treatmentName)}`,
+    `<b>Cost:</b> ${escapeTelegramHtml(costLabel)}`,
     `<b>Date &amp; Time:</b> ${escapeTelegramHtml(formatBotDateTime(booking.preferredDateTime))}`,
     allowsMessaging
-      ? `<b>WhatsApp:</b> <code>${escapeTelegramHtml(wa.display)}</code>`
-      : `<b>Contact Rule:</b> Phone Call Only (No WhatsApp consent)`,
-    `<b>Phone (Call):</b> <code>${escapeTelegramHtml(`${booking.phoneCountryCode} ${booking.phoneNumber}`)}</code>`,
+      ? `<b>Phone:</b> <code>${escapeTelegramHtml(singlePhoneDisplay)}</code>`
+      : `<b>Phone:</b> <code>${escapeTelegramHtml(singlePhoneDisplay)}</code> <i>(Call Only)</i>`,
     `<b>Status:</b> <b>${statusBadge}</b>`,
+    ...(booking.status === 'cancelled' && booking.cancelNote
+      ? [`<b>Cancel Note:</b> ${escapeTelegramHtml(booking.cancelNote)}`]
+      : []),
     `<b>Ref:</b> <code>${escapeTelegramHtml(booking.id)}</code>`,
   ];
 
@@ -142,6 +271,9 @@ export function buildTeamPatientAlertCard(
     ]);
   }
 
+  const visitIsoDateMatch = /^(\d{4}-\d{2}-\d{2})/.exec(booking.preferredDateTime || '');
+  const visitIsoDate = visitIsoDateMatch ? visitIsoDateMatch[1] : '';
+
   if (booking.status === 'requested') {
     inline_keyboard.push([
       { text: '✅ Mark Confirmed', callback_data: `team:confirm:${booking.id}` },
@@ -154,7 +286,17 @@ export function buildTeamPatientAlertCard(
     ]);
   }
 
-  if (booking.status !== 'confirmed') {
+  if (booking.status === 'cancelled') {
+    const pdfRow: TelegramInlineButton[] = [];
+    if (visitIsoDate) {
+      pdfRow.push({
+        text: `📄 Updated PDF (${visitIsoDate})`,
+        callback_data: `team:pdf:date:${visitIsoDate}`,
+      });
+    }
+    pdfRow.push({ text: '📄 Today PDF', callback_data: 'team:pdf:today' });
+    inline_keyboard.push(pdfRow);
+  } else if (booking.status !== 'confirmed') {
     inline_keyboard.push([{ text: '📄 Send Today PDF', callback_data: 'team:pdf:today' }]);
   }
 
@@ -166,9 +308,10 @@ export function buildTeamPatientAlertCard(
 
 /**
  * Build a patient-facing Telegram status update message triggered when the clinical team
- * confirms or cancels a booking from the Team Bot.
+ * confirms or cancels a booking from the Team Bot (including any team cancellation note).
  * Inputs: ConciergeBookingRecord.
  * Output: Telegram HTML message string.
+ * Errors: None.
  */
 export function buildPatientStatusUpdateMessage(booking: ConciergeBookingRecord): string {
   if (booking.status === 'confirmed') {
@@ -186,8 +329,12 @@ export function buildPatientStatusUpdateMessage(booking: ConciergeBookingRecord)
   return [
     `<b>Appointment Update · Elara Atelier</b>`,
     ``,
-    `Your consultation request for <b>${escapeTelegramHtml(booking.treatmentName)}</b> (${escapeTelegramHtml(formatBotDateTime(booking.preferredDateTime))}) has been marked cancelled by our clinic team.`,
-    `Please call <b>${escapeTelegramHtml(CLINIC_CONFIG.phoneDisplay)}</b> or book a new slot on our studio site anytime.`,
+    `Your consultation request for <b>${escapeTelegramHtml(booking.treatmentName)}</b> (${escapeTelegramHtml(formatBotDateTime(booking.preferredDateTime))}) has been cancelled by our clinic team.`,
+    ...(booking.cancelNote
+      ? [``, `<b>Note from Clinic Team:</b> ${escapeTelegramHtml(booking.cancelNote)}`]
+      : []),
+    ``,
+    `Open your Patient Profile on our website to re-book with your saved details, or call <b>${escapeTelegramHtml(CLINIC_CONFIG.phoneDisplay)}</b>.`,
   ].join('\n');
 }
 
@@ -223,14 +370,16 @@ export function processTeamBotUpdate(
       return { actions, syncEvents, sendPdfRequests, patientNotifyEvents };
     }
 
-    if (data.startsWith('team:confirm:') || data.startsWith('team:cancel:')) {
-      const isConfirm = data.startsWith('team:confirm:');
-      const bookingId = data.slice(isConfirm ? 'team:confirm:'.length : 'team:cancel:'.length);
-      const result = store.updateBookingStatusFromTeam(
-        bookingId,
-        isConfirm ? 'confirmed' : 'cancelled',
-        nowMs
-      );
+    if (data.startsWith('team:confirm:')) {
+      const bookingId = data.slice('team:confirm:'.length);
+      if (!store.getBookingById(bookingId)) {
+        const recovered = rehydrateBookingFromTelegramMessage(bookingId, cq.message?.text, nowMs);
+        if (recovered) {
+          store.upsertBooking(recovered);
+        }
+      }
+
+      const result = store.updateBookingStatusFromTeam(bookingId, 'confirmed', nowMs);
 
       if (!result.ok) {
         actions.push({
@@ -261,9 +410,7 @@ export function processTeamBotUpdate(
 
       const updatedCard = buildTeamPatientAlertCard(
         result.booking,
-        isConfirm
-          ? 'ELARA ATELIER · CONFIRMED BY TEAM'
-          : 'ELARA ATELIER · CANCELLED BY TEAM'
+        'ELARA ATELIER · CONFIRMED BY TEAM'
       );
 
       if (messageId) {
@@ -286,6 +433,90 @@ export function processTeamBotUpdate(
             parse_mode: 'HTML',
             reply_markup: updatedCard.reply_markup,
           },
+        });
+      }
+      return { actions, syncEvents, sendPdfRequests, patientNotifyEvents };
+    }
+
+    if (data.startsWith('team:cancel:')) {
+      const bookingId = data.slice('team:cancel:'.length);
+      let targetBooking = store.getBookingById(bookingId);
+      if (!targetBooking) {
+        const recovered = rehydrateBookingFromTelegramMessage(bookingId, cq.message?.text, nowMs);
+        if (recovered) {
+          targetBooking = store.upsertBooking(recovered);
+        }
+      }
+
+      if (!targetBooking) {
+        actions.push({
+          method: 'sendMessage',
+          payload: {
+            chat_id: chatId,
+            text: `<b>Update Failed:</b> Booking record could not be found.`,
+            parse_mode: 'HTML',
+            reply_markup: buildTeamMainMenuKeyboard(),
+          },
+        });
+        return { actions, syncEvents, sendPdfRequests, patientNotifyEvents };
+      }
+
+      if (targetBooking.status === 'cancelled') {
+        actions.push({
+          method: 'sendMessage',
+          payload: {
+            chat_id: chatId,
+            text: `<b>Already Cancelled:</b> ${escapeTelegramHtml(targetBooking.fullName)}'s consultation is already cancelled.`,
+            parse_mode: 'HTML',
+            reply_markup: buildTeamMainMenuKeyboard(),
+          },
+        });
+        return { actions, syncEvents, sendPdfRequests, patientNotifyEvents };
+      }
+
+      store.setPendingTeamCancel(chatId, {
+        bookingId: targetBooking.id,
+        cardMessageId: messageId,
+        createdAtMs: nowMs,
+        fallbackBooking: targetBooking,
+      });
+
+      const phoneDisplay = `${targetBooking.phoneCountryCode} ${targetBooking.phoneNumber}`.trim();
+      actions.push({
+        method: 'sendMessage',
+        payload: {
+          chat_id: chatId,
+          text: [
+            `<b>Cancellation Note Required</b>`,
+            ``,
+            `Please reply with a short reason explaining why this visit is being cancelled. This note will be shown to the patient on their Profile along with a 1-click Re-Book button.`,
+            ``,
+            `<b>Patient:</b> ${escapeTelegramHtml(targetBooking.fullName)}`,
+            `<b>Treatment:</b> ${escapeTelegramHtml(targetBooking.treatmentName)}`,
+            `<b>Date &amp; Time:</b> ${escapeTelegramHtml(formatBotDateTime(targetBooking.preferredDateTime))}`,
+            `<b>Phone:</b> <code>${escapeTelegramHtml(phoneDisplay)}</code>`,
+            `<b>Ref:</b> <code>${escapeTelegramHtml(targetBooking.id)}</code>`,
+            ``,
+            `<i>Send /abort to keep this appointment active.</i>`,
+          ].join('\n'),
+          parse_mode: 'HTML',
+          reply_markup: {
+            force_reply: true,
+            selective: true,
+            input_field_placeholder: 'Type cancellation note for patient…',
+          },
+        },
+      });
+      return { actions, syncEvents, sendPdfRequests, patientNotifyEvents };
+    }
+
+    if (data.startsWith('team:pdf:date:')) {
+      const targetIso = data.slice('team:pdf:date:'.length).trim();
+      if (/^\d{4}-\d{2}-\d{2}$/.test(targetIso)) {
+        sendPdfRequests.push({
+          chatId,
+          targetIsoDate: targetIso,
+          displayDateLabel: formatIsoDateHeading(targetIso),
         });
       }
       return { actions, syncEvents, sendPdfRequests, patientNotifyEvents };
@@ -314,7 +545,7 @@ export function processTeamBotUpdate(
     return { actions, syncEvents, sendPdfRequests, patientNotifyEvents };
   }
 
-  // 2. Text /slash commands and Team Reply Keyboard buttons
+  // 2. Text /slash commands, Cancellation Note replies, and Team Reply Keyboard buttons
   const msg = update.message;
   if (!msg?.chat?.id) {
     return { actions, syncEvents, sendPdfRequests, patientNotifyEvents };
@@ -325,6 +556,120 @@ export function processTeamBotUpdate(
   const lower = rawText.toLowerCase();
   const teamMenu = buildTeamMainMenuKeyboard();
   const requiredPasscode = options?.teamPasscode?.trim() || '';
+
+  // Check if team is aborting or submitting a mandatory cancellation note
+  const pendingCancel = store.getPendingTeamCancel(chatId);
+  const replyText = msg.reply_to_message?.text || '';
+  const replyRefMatch =
+    /Cancellation Note Required/i.test(replyText) ? /Ref:\s*([a-zA-Z0-9_-]+)/i.exec(replyText) : null;
+  const activeCancelBookingId = pendingCancel?.bookingId || replyRefMatch?.[1] || '';
+
+  if (activeCancelBookingId && (lower === '/abort' || lower === '/keep')) {
+    store.clearPendingTeamCancel(chatId);
+    actions.push({
+      method: 'sendMessage',
+      payload: {
+        chat_id: chatId,
+        text: `<b>Cancellation Aborted</b>\n\nAppointment <code>${escapeTelegramHtml(activeCancelBookingId)}</code> remains active.`,
+        parse_mode: 'HTML',
+        reply_markup: teamMenu,
+      },
+    });
+    return { actions, syncEvents, sendPdfRequests, patientNotifyEvents };
+  }
+
+  const isMenuOrSlashCommand =
+    rawText.startsWith('/') ||
+    rawText === TEAM_MENU_LABELS.pending ||
+    rawText === TEAM_MENU_LABELS.today ||
+    rawText === TEAM_MENU_LABELS.tomorrow ||
+    rawText === TEAM_MENU_LABELS.tomorrowPdf;
+
+  if (activeCancelBookingId && rawText && !isMenuOrSlashCommand) {
+    const cancelNote = rawText.slice(0, 500);
+    if (!store.getBookingById(activeCancelBookingId)) {
+      const recovered =
+        pendingCancel?.fallbackBooking ||
+        rehydrateBookingFromTelegramMessage(activeCancelBookingId, replyText, nowMs);
+      if (recovered) {
+        store.upsertBooking(recovered);
+      }
+    }
+
+    const result = store.updateBookingStatusFromTeam(
+      activeCancelBookingId,
+      'cancelled',
+      nowMs,
+      cancelNote
+    );
+    const originalCardMessageId = pendingCancel?.cardMessageId;
+    store.clearPendingTeamCancel(chatId);
+
+    if (!result.ok) {
+      actions.push({
+        method: 'sendMessage',
+        payload: {
+          chat_id: chatId,
+          text: `<b>Update Failed:</b> ${escapeTelegramHtml(result.error)}`,
+          parse_mode: 'HTML',
+          reply_markup: teamMenu,
+        },
+      });
+      return { actions, syncEvents, sendPdfRequests, patientNotifyEvents };
+    }
+
+    syncEvents.push({
+      type: 'booking_updated',
+      booking: result.booking,
+      userId: result.booking.userId,
+    });
+
+    const patientChatId = store.findChatIdForBooking(result.booking);
+    if (patientChatId) {
+      patientNotifyEvents.push({
+        chatId: patientChatId,
+        booking: result.booking,
+      });
+    }
+
+    const updatedCard = buildTeamPatientAlertCard(
+      result.booking,
+      'ELARA ATELIER · CANCELLED BY TEAM'
+    );
+
+    if (originalCardMessageId) {
+      actions.push({
+        method: 'editMessageText',
+        payload: {
+          chat_id: chatId,
+          message_id: originalCardMessageId,
+          text: updatedCard.text,
+          parse_mode: 'HTML',
+          reply_markup: updatedCard.reply_markup,
+        },
+      });
+    }
+
+    actions.push({
+      method: 'sendMessage',
+      payload: {
+        chat_id: chatId,
+        text: [
+          `<b>Appointment Cancelled &amp; Note Recorded</b>`,
+          ``,
+          `<b>Patient:</b> ${escapeTelegramHtml(result.booking.fullName)}`,
+          `<b>Treatment:</b> ${escapeTelegramHtml(result.booking.treatmentName)}`,
+          `<b>Cancel Note Sent to Patient:</b> ${escapeTelegramHtml(cancelNote)}`,
+          `<b>Ref:</b> <code>${escapeTelegramHtml(result.booking.id)}</code>`,
+          ``,
+          `The patient will see this note on their Profile with a 1-click Re-Book button, and schedule PDFs have been updated.`,
+        ].join('\n'),
+        parse_mode: 'HTML',
+        reply_markup: updatedCard.reply_markup,
+      },
+    });
+    return { actions, syncEvents, sendPdfRequests, patientNotifyEvents };
+  }
 
   if (lower.startsWith('/chatid') || lower.startsWith('/whoami')) {
     actions.push({
@@ -663,21 +1008,24 @@ export function buildMorningBookingsListMessage(params: {
   params.bookings.forEach((booking, idx) => {
     const timeLabel = formatVisitTimeShort(booking.preferredDateTime);
     const allowsMessaging = booking.messagingConsent !== false;
+    const costLabel = resolveTreatmentCostLabel(booking);
     const phoneDisplay = `${booking.phoneCountryCode} ${booking.phoneNumber}`.trim();
     const wa = resolveBookingWhatsAppDisplay(booking);
+    const unifiedPhone =
+      allowsMessaging && wa.display && wa.display !== 'Not provided' ? wa.display : phoneDisplay;
     const contactNote = allowsMessaging
-      ? `WhatsApp / Phone: <code>${escapeTelegramHtml(wa.display || phoneDisplay)}</code>`
-      : `Phone Call Only: <code>${escapeTelegramHtml(phoneDisplay)}</code>`;
+      ? `Phone: <code>${escapeTelegramHtml(unifiedPhone)}</code>`
+      : `Phone: <code>${escapeTelegramHtml(unifiedPhone)}</code> (Call Only)`;
     const statusLabel =
       booking.status === 'confirmed'
         ? 'Confirmed'
         : allowsMessaging
-          ? 'Pending WhatsApp'
+          ? 'Pending Confirmation'
           : 'Pending Call';
 
     lines.push(
       `<b>${idx + 1}. ${escapeTelegramHtml(timeLabel)} — ${escapeTelegramHtml(booking.fullName)}</b>`,
-      `   • ${escapeTelegramHtml(booking.treatmentName)}`,
+      `   • ${escapeTelegramHtml(booking.treatmentName)} (${escapeTelegramHtml(costLabel)})`,
       `   • ${contactNote} · <i>${escapeTelegramHtml(statusLabel)}</i>`
     );
   });

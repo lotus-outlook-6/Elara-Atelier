@@ -261,7 +261,7 @@ export function generatePatientSchedulePdf(input: GeneratePatientPdfInput): Buff
     pdfText(ops, 'F2', 8.5, 64, headerY + 1, 'TIME', [0.98, 0.97, 0.95], 12);
     pdfText(ops, 'F2', 8.5, 122, headerY + 1, 'PATIENT', [0.98, 0.97, 0.95], 24);
     pdfText(ops, 'F2', 8.5, 240, headerY + 1, 'TREATMENT', [0.98, 0.97, 0.95], 34);
-    pdfText(ops, 'F2', 8.5, 396, headerY + 1, 'WHATSAPP', [0.98, 0.97, 0.95], 22);
+    pdfText(ops, 'F2', 8.5, 396, headerY + 1, 'PHONE', [0.98, 0.97, 0.95], 22);
     pdfText(ops, 'F2', 8.5, 498, headerY + 1, 'STATUS', [0.98, 0.97, 0.95], 16);
 
     if (pageRows.length === 0) {
@@ -308,17 +308,17 @@ export function generatePatientSchedulePdf(input: GeneratePatientPdfInput): Buff
           pdfText(ops, 'F1', 8, 240, secondaryY, treatmentLines[1], [0.43, 0.4, 0.37], 30);
         }
 
-        const waCode = booking.whatsappCountryCode || booking.phoneCountryCode || '+1';
-        const waNum = booking.whatsappNumber || booking.phoneNumber || '';
-        const waDisplay = waNum ? `${waCode} ${waNum}` : 'Not set';
-        pdfText(ops, 'F2', 8.5, 396, primaryY, waDisplay, [0.12, 0.11, 0.09], 20);
+        const phoneCode = booking.phoneCountryCode || booking.whatsappCountryCode || '+1';
+        const phoneNum = booking.phoneNumber || booking.whatsappNumber || '';
+        const phoneDisplay = phoneNum ? `${phoneCode} ${phoneNum}` : 'Not set';
+        pdfText(ops, 'F2', 8.5, 396, primaryY, phoneDisplay, [0.12, 0.11, 0.09], 20);
         pdfText(
           ops,
           'F1',
           7.5,
           396,
           secondaryY,
-          booking.telegramValue ? `TG: ${booking.telegramValue}` : `Ph: ${booking.phoneCountryCode} ${booking.phoneNumber}`,
+          booking.messagingConsent === false ? 'Phone Call Only' : 'WhatsApp & Call',
           [0.43, 0.4, 0.37],
           22
         );

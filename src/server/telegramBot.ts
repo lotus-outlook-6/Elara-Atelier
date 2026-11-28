@@ -34,6 +34,11 @@ export type TelegramReplyMarkup =
       one_time_keyboard?: boolean;
       is_persistent?: boolean;
       input_field_placeholder?: string;
+    }
+  | {
+      force_reply: true;
+      selective?: boolean;
+      input_field_placeholder?: string;
     };
 
 export interface OutgoingTelegramAction {
@@ -48,6 +53,10 @@ export interface TelegramUpdatePayload {
     chat?: { id?: number | string };
     from?: { id?: number | string; username?: string; first_name?: string };
     text?: string;
+    reply_to_message?: {
+      message_id?: number;
+      text?: string;
+    };
     contact?: {
       phone_number?: string;
       user_id?: number | string;
@@ -59,6 +68,7 @@ export interface TelegramUpdatePayload {
     message?: {
       message_id?: number;
       chat?: { id?: number | string };
+      text?: string;
     };
     data?: string;
   };

@@ -212,7 +212,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({ onReserveClick }) => {
             onCardClick={handleCardClick}
           />
           <p className="mt-5 text-center text-xs tracking-[0.16em] text-[#6E655F] uppercase lg:text-right">
-            Private Lounge · Calm Treatment Rooms · Personal Care
+            Facial Aesthetics · Cosmetic Dentistry · Skin Renewal
           </p>
         </div>
       </div>
